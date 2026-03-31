@@ -1,0 +1,14 @@
+{
+  "openclaw": {
+    "config_path": "~/.openclaw/openclaw.json",
+    "provider_entries": [],
+    "workspace_path": "",
+    "node_version": ""
+  },
+  "router": {
+    "base_url": "http://127.0.0.1:20128/v1",
+    "providers": [],
+    "combos": [],
+    "host_binding": "127.0.0.1"
+  }
+}

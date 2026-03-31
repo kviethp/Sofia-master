@@ -1,0 +1,29 @@
+version: 1
+risk_classes:
+  - low
+  - medium
+  - high
+  - critical
+roles:
+  planner:
+    low: sofia-hard
+    medium: sofia-hard
+    high: sofia-hard
+    critical: sofia-hard
+  builder:
+    low: sofia-fast
+    medium: sofia-fast
+    high: sofia-hard
+    critical: sofia-hard
+  verifier:
+    low: sofia-fast
+    medium: sofia-hard
+    high: sofia-hard
+    critical: sofia-hard
+free_fallback:
+  allowed_for:
+    - low
+  forbidden_for:
+    - medium
+    - high
+    - critical

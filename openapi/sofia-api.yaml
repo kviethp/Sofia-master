@@ -1,0 +1,958 @@
+openapi: 3.1.0
+info:
+  title: Sofia Master API
+  version: 0.1.0
+  description: >
+    Scaffold-grade control-plane API for Sofia Master. The runtime path is backed by
+    PostgreSQL, Redis, OpenClaw, and 9Router when those services are configured.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local default
+tags:
+  - name: Ops
+  - name: Runtime
+  - name: Templates
+  - name: Tasks
+  - name: Runs
+  - name: Approvals
+security:
+  - SofiaControlToken: []
+paths:
+  /health:
+    get:
+      security: []
+      tags: [Ops]
+      summary: Health check
+      responses:
+        '200':
+          description: Service liveness
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/ready:
+    get:
+      security: []
+      tags: [Ops]
+      summary: Readiness check for storage and queue dependencies
+      responses:
+        '200':
+          description: Runtime dependencies are ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Runtime dependencies are not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+  /v1/doctor:
+    get:
+      tags: [Ops]
+      summary: Run doctor checks
+      responses:
+        '200':
+          description: Doctor report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorReport'
+  /v1/smoke:
+    post:
+      tags: [Ops]
+      summary: Run smoke path against the configured runtime
+      responses:
+        '200':
+          description: Smoke report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmokeReport'
+  /v1/runtime/status:
+    get:
+      tags: [Runtime]
+      summary: Inspect runtime readiness, queue depth, and workflow backlog
+      responses:
+        '200':
+          description: Runtime status summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeStatus'
+  /v1/runtime/metrics:
+    get:
+      tags: [Runtime]
+      summary: Inspect lightweight runtime metrics for self-hosted monitoring
+      responses:
+        '200':
+          description: Runtime metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeMetrics'
+  /v1/project-templates:
+    get:
+      tags: [Templates]
+      summary: List supported project templates and their default workflow settings
+      responses:
+        '200':
+          description: Project template catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectTemplate'
+  /v1/tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks with workflow state, runs, and approvals
+      parameters:
+        - $ref: '#/components/parameters/status'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Task list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+    post:
+      tags: [Tasks]
+      summary: Create task with optional template-based defaults
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+  /v1/tasks/{id}:
+    get:
+      tags: [Tasks]
+      summary: Get task including workflow state and runs
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+  /v1/tasks/{id}/start:
+    post:
+      tags: [Tasks]
+      summary: Start task workflow from the current phase
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Workflow execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskExecutionResult'
+  /v1/tasks/{id}/approve:
+    post:
+      tags: [Approvals]
+      summary: Approve the current pending gate and resume the workflow
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+      responses:
+        '200':
+          description: Approval recorded and the gated phase resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalActionResult'
+  /v1/tasks/{id}/reject:
+    post:
+      tags: [Approvals]
+      summary: Reject the current pending gate and fail the workflow
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalDecisionRequest'
+      responses:
+        '200':
+          description: Approval rejected and the workflow halted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalActionResult'
+  /v1/runs:
+    get:
+      tags: [Runs]
+      summary: List runs with optional status and task filters
+      parameters:
+        - $ref: '#/components/parameters/status'
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Run list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Run'
+  /v1/runs/{id}:
+    get:
+      tags: [Runs]
+      summary: Get run details including phase trace, decisions, artifacts, and usage
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+  /v1/runs/{id}/replay:
+    post:
+      tags: [Runs]
+      summary: Replay a dead-lettered run and requeue it for execution
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplayRunRequest'
+      responses:
+        '200':
+          description: Dead-lettered run replayed and queued again
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskExecutionResult'
+  /v1/approvals:
+    get:
+      tags: [Approvals]
+      summary: List approvals with optional status and task filters
+      parameters:
+        - $ref: '#/components/parameters/status'
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Approval list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Approval'
+  /v1/approvals/pending:
+    get:
+      tags: [Approvals]
+      summary: List pending approvals
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Pending approval list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Approval'
+components:
+  securitySchemes:
+    SofiaControlToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >
+        Send `Bearer <token>` in the `Authorization` header, or use `x-sofia-token`.
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    taskId:
+      name: taskId
+      in: query
+      required: false
+      schema:
+        type: string
+    status:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+    limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        mode:
+          type: string
+      required: [status, service, mode]
+    ReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        mode:
+          type: string
+        services:
+          $ref: '#/components/schemas/RuntimeServiceStatus'
+      required: [status, service, mode, services]
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required: [error]
+    RuntimeServiceProbe:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        durationMs:
+          type: integer
+        database:
+          type: string
+          nullable: true
+        user:
+          type: string
+          nullable: true
+        response:
+          type: string
+          nullable: true
+        error:
+          type: object
+          nullable: true
+          additionalProperties: true
+      required: [ok]
+    RuntimeServiceStatus:
+      type: object
+      properties:
+        postgres:
+          $ref: '#/components/schemas/RuntimeServiceProbe'
+        redis:
+          $ref: '#/components/schemas/RuntimeServiceProbe'
+      required: [postgres, redis]
+    QueueStatus:
+      type: object
+      properties:
+        queueName:
+          type: string
+        deadLetterQueueName:
+          type: string
+        queuedCount:
+          type: integer
+        deadLetterCount:
+          type: integer
+      additionalProperties: true
+    RuntimeStatus:
+      type: object
+      properties:
+        mode:
+          type: string
+        policy:
+          $ref: '#/components/schemas/RuntimePolicy'
+        skills:
+          $ref: '#/components/schemas/RuntimeSkills'
+        services:
+          type: object
+          additionalProperties: true
+        worker:
+          type: object
+          additionalProperties: true
+        queue:
+          anyOf:
+            - $ref: '#/components/schemas/QueueStatus'
+            - type: 'null'
+        tasksByStatus:
+          type: object
+          additionalProperties:
+            type: integer
+        runsByStatus:
+          type: object
+          additionalProperties:
+            type: integer
+        pendingApprovals:
+          type: integer
+      required: [mode, policy, skills, services, worker, tasksByStatus, runsByStatus, pendingApprovals]
+    RuntimeMetrics:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        uptimeSeconds:
+          type: integer
+        mode:
+          type: string
+        policy:
+          $ref: '#/components/schemas/RuntimePolicy'
+        services:
+          type: object
+          properties:
+            postgresOk:
+              type: boolean
+            redisOk:
+              type: boolean
+          required: [postgresOk, redisOk]
+        queue:
+          type: object
+          properties:
+            queuedCount:
+              type: integer
+            deadLetterCount:
+              type: integer
+          required: [queuedCount, deadLetterCount]
+        skills:
+          type: object
+          properties:
+            ok:
+              type: boolean
+            skillCount:
+              type: integer
+            requiredSkillCount:
+              type: integer
+          required: [ok, skillCount, requiredSkillCount]
+        counts:
+          type: object
+          properties:
+            pendingApprovals:
+              type: integer
+            tasksByStatus:
+              type: object
+              additionalProperties:
+                type: integer
+            runsByStatus:
+              type: object
+              additionalProperties:
+                type: integer
+          required: [pendingApprovals, tasksByStatus, runsByStatus]
+      required: [timestamp, uptimeSeconds, mode, services, queue, skills, counts]
+    RuntimePolicy:
+      type: object
+      properties:
+        denyProviders:
+          type: array
+          items:
+            type: string
+        allowedSkillTrustLevels:
+          type: array
+          items:
+            type: string
+        tokenBudgets:
+          type: object
+          properties:
+            input:
+              type: integer
+              nullable: true
+            output:
+              type: integer
+              nullable: true
+            total:
+              type: integer
+              nullable: true
+          required: [input, output, total]
+      required: [denyProviders, allowedSkillTrustLevels, tokenBudgets]
+    RuntimeSkills:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: string
+        autoCompiled:
+          type: boolean
+        manifestPath:
+          type: string
+        sourceDir:
+          type: string
+        outputDir:
+          type: string
+        skillCount:
+          type: integer
+        requiredSkillIds:
+          type: array
+          items:
+            type: string
+        allowedTrustLevels:
+          type: array
+          items:
+            type: string
+        skills:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              version:
+                type: string
+              trustLevel:
+                type: string
+              requiredTools:
+                type: array
+                items:
+                  type: string
+            required: [id, version, trustLevel, requiredTools]
+        errors:
+          type: array
+          items:
+            type: string
+      required: [ok, status, autoCompiled, manifestPath, sourceDir, outputDir, skillCount, requiredSkillIds, allowedTrustLevels, skills, errors]
+    ProjectTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        path:
+          type: string
+        defaults:
+          type: object
+          properties:
+            risk:
+              type: string
+            workflowTemplate:
+              type: string
+          required: [risk, workflowTemplate]
+      required: [id, name, description, path, defaults]
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        templateId:
+          type: string
+        title:
+          type: string
+        risk:
+          type: string
+        workflowTemplate:
+          type: string
+        currentPhase:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        storageMode:
+          type: string
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunSummary'
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Approval'
+      required:
+        - id
+        - projectId
+        - templateId
+        - title
+        - risk
+        - workflowTemplate
+        - currentPhase
+        - status
+        - createdAt
+        - updatedAt
+        - storageMode
+    RunSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        status:
+          type: string
+        workerRole:
+          type: string
+          nullable: true
+        modelProfile:
+          type: string
+          nullable: true
+        phaseIndex:
+          type: integer
+        storageMode:
+          type: string
+        attemptCount:
+          type: integer
+        leaseOwner:
+          type: string
+          nullable: true
+        leaseExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastHeartbeatAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextRetryAt:
+          type: string
+          format: date-time
+          nullable: true
+        deadLetterReason:
+          type: string
+          nullable: true
+        deadLetteredAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - taskId
+        - status
+        - phaseIndex
+        - storageMode
+        - attemptCount
+        - createdAt
+        - updatedAt
+    Artifact:
+      type: object
+      properties:
+        id:
+          type: string
+        runId:
+          type: string
+        kind:
+          type: string
+        uri:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, runId, kind, uri, createdAt]
+    RunStep:
+      type: object
+      properties:
+        id:
+          type: string
+        runId:
+          type: string
+        stepName:
+          type: string
+        status:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, runId, stepName, status, details, createdAt]
+    Decision:
+      type: object
+      properties:
+        id:
+          type: string
+        runId:
+          type: string
+        category:
+          type: string
+        subject:
+          type: string
+        outcome:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, runId, category, subject, outcome, evidence, createdAt]
+    UsageEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        runId:
+          type: string
+        modelProfile:
+          type: string
+        provider:
+          type: string
+          nullable: true
+        fallbackDepth:
+          type: integer
+        tokensIn:
+          type: integer
+        tokensOut:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, runId, modelProfile, fallbackDepth, tokensIn, tokensOut, createdAt]
+    Run:
+      allOf:
+        - $ref: '#/components/schemas/RunSummary'
+        - type: object
+          properties:
+            artifacts:
+              type: array
+              items:
+                $ref: '#/components/schemas/Artifact'
+            steps:
+              type: array
+              items:
+                $ref: '#/components/schemas/RunStep'
+            decisions:
+              type: array
+              items:
+                $ref: '#/components/schemas/Decision'
+            usageEntries:
+              type: array
+              items:
+                $ref: '#/components/schemas/UsageEntry'
+          required: [artifacts, steps, decisions, usageEntries]
+    Approval:
+      type: object
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        requestedByRunId:
+          type: string
+          nullable: true
+        phaseName:
+          type: string
+        status:
+          type: string
+        channel:
+          type: string
+          nullable: true
+        target:
+          type: string
+          nullable: true
+        decisionBy:
+          type: string
+          nullable: true
+        note:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, taskId, phaseName, status, createdAt, updatedAt]
+    TaskExecutionResult:
+      type: object
+      properties:
+        task:
+          $ref: '#/components/schemas/Task'
+        run:
+          $ref: '#/components/schemas/Run'
+        nextRun:
+          anyOf:
+            - $ref: '#/components/schemas/RunSummary'
+            - type: 'null'
+        pendingApproval:
+          anyOf:
+            - $ref: '#/components/schemas/Approval'
+            - type: 'null'
+        queue:
+          type: object
+          nullable: true
+          additionalProperties: true
+        artifact:
+          anyOf:
+            - $ref: '#/components/schemas/Artifact'
+            - type: 'null'
+        usage:
+          type: object
+          nullable: true
+          additionalProperties: true
+        usageEntries:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageEntry'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunStep'
+        decisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Decision'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Artifact'
+        storageMode:
+          type: string
+      required: [task, usageEntries, steps, decisions, artifacts]
+    ApprovalDecisionRequest:
+      type: object
+      properties:
+        decisionBy:
+          type: string
+        note:
+          type: string
+    ApprovalActionResult:
+      type: object
+      properties:
+        approval:
+          $ref: '#/components/schemas/Approval'
+        task:
+          $ref: '#/components/schemas/Task'
+        run:
+          anyOf:
+            - $ref: '#/components/schemas/Run'
+            - type: 'null'
+        queue:
+          type: object
+          nullable: true
+          additionalProperties: true
+      required: [approval, task]
+    CreateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        risk:
+          type: string
+        templateId:
+          type: string
+        workflowTemplate:
+          type: string
+      required: [title]
+    ReplayRunRequest:
+      type: object
+      properties:
+        replayedBy:
+          type: string
+        note:
+          type: string
+    DoctorCheck:
+      type: object
+      properties:
+        name:
+          type: string
+        ok:
+          type: boolean
+        note:
+          type: string
+          nullable: true
+      required: [name, ok]
+    DoctorReport:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        runtimeSnapshot:
+          type: object
+          additionalProperties: true
+        runtimeServices:
+          type: object
+          additionalProperties: true
+        router:
+          type: object
+          additionalProperties: true
+        openClaw:
+          type: object
+          additionalProperties: true
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DoctorCheck'
+        conflicts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        warnings:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        summary:
+          type: object
+          additionalProperties: true
+      required: [timestamp, checks, conflicts, warnings, summary]
+    SmokeReport:
+      type: object
+      properties:
+        result:
+          type: string
+        storageMode:
+          type: string
+        run:
+          anyOf:
+            - $ref: '#/components/schemas/Run'
+            - type: 'null'
+        task:
+          anyOf:
+            - $ref: '#/components/schemas/Task'
+            - type: 'null'
+        smokeTemplateId:
+          type: string
+          nullable: true
+      additionalProperties: true

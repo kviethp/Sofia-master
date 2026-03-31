@@ -1,0 +1,15 @@
+[Unit]
+Description=Sofia API
+After=network.target 9router.service
+Requires=9router.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sofia/current
+EnvironmentFile=/etc/sofia/sofia.env
+ExecStart=/usr/bin/env node apps/sofia-api/src/index.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

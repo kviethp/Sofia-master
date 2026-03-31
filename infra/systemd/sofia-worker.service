@@ -1,0 +1,16 @@
+[Unit]
+Description=Sofia Worker Loop
+After=network.target sofia-api.service
+Requires=sofia-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sofia/current
+EnvironmentFile=/etc/sofia/sofia.env
+Environment=SOFIA_WORKER_LOOP=true
+ExecStart=/usr/bin/env node apps/sofia-worker/src/index.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

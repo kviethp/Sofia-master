@@ -1,0 +1,15 @@
+[Unit]
+Description=Sofia Telegram Approval Poller
+After=network.target sofia-api.service
+Requires=sofia-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sofia/current
+EnvironmentFile=/etc/sofia/sofia.env
+ExecStart=/usr/bin/env node scripts/approval-poller-loop.mjs
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

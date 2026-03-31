@@ -1,0 +1,10 @@
+* @sofia-maintainers
+
+/apps/sofia-api/ @sofia-core
+/apps/sofia-worker/ @sofia-core
+/packages/policy-engine/ @sofia-core
+/packages/router-client/ @sofia-integrations
+/packages/openclaw-adapter/ @sofia-integrations
+/sql/ @sofia-core
+/openapi/ @sofia-core
+/docs/ @sofia-docs

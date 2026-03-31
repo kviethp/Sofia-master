@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Sofia backup every 6 hours
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=6h
+Persistent=true
+Unit=sofia-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Sofia scheduled backup
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/sofia/current
+EnvironmentFile=/etc/sofia/sofia.env
+ExecStart=/usr/bin/env node scripts/backup.mjs
+
+[Install]
+WantedBy=multi-user.target

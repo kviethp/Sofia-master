@@ -1,0 +1,6 @@
+{
+  "provider": "router9",
+  "base_url": "http://127.0.0.1:20128/v1",
+  "api_key": "sk-sofia-local",
+  "model": "router9/sofia-fast"
+}

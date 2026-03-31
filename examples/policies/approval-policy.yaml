@@ -1,0 +1,6 @@
+version: 1
+manual_review_required:
+  - auth/**
+  - billing/**
+  - infra/**
+  - migrations/**

@@ -1,0 +1,6 @@
+{
+  "project_name": "demo-login-app",
+  "task": "Add a simple login page scaffold and produce a verification report.",
+  "risk": "low",
+  "workflow_template": "webapp-basic"
+}
