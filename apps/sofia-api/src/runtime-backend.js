@@ -43,6 +43,7 @@ import {
   probeRedis
 } from './redis-queue.js';
 import {runTaskWithOpenClaw} from './run-executor.js';
+import {afterMilestoneHook, afterResumeHook, beforeCompactionHook, safeMemoryHook} from './memory-hooks.js';
 import {sendTelegramMessage, validateOpenClawConfig, getDefaultTelegramTarget} from '../../../packages/openclaw-adapter/src/index.js';
 import {resolveCompiledSkillRegistry} from '../../../packages/skill-compiler/src/index.js';
 import {applyProjectTemplate, listProjectTemplates as listBuiltinProjectTemplates} from './project-templates.js';
@@ -629,6 +630,13 @@ export async function processOneQueuedRun(options = {}) {
       }
 
       const task = await getTaskFromPostgres(store, deadLetteredRun.taskId);
+      await safeMemoryHook(afterMilestoneHook, {
+        runtime,
+        task,
+        run: deadLetteredRun,
+        milestone: 'execution_failed',
+        detail: `Run dead-lettered after hitting retry cap: ${deadLetteredRun.deadLetterReason || 'unknown reason'}`
+      });
       const trace = await collectRunTrace(store, runId);
       return {
         task,
@@ -681,6 +689,13 @@ export async function processOneQueuedRun(options = {}) {
     let completed;
 
     if (useOpenClawExecution()) {
+      await safeMemoryHook(beforeCompactionHook, {
+        runtime,
+        task: taskBeforeComplete,
+        run: runningRun,
+        reason: 'before_openclaw_execution'
+      });
+
       await recordRunStep(store, runId, 'execution_requested', 'completed', {
         executionMode: 'openclaw',
         requestedProfile: runningRun.modelProfile,
@@ -791,6 +806,13 @@ export async function processOneQueuedRun(options = {}) {
           execution.result.stderr || execution.result.stdout || 'OpenClaw execution failed'
         );
         const failedTask = await getTaskFromPostgres(store, runningRun.taskId);
+        await safeMemoryHook(afterMilestoneHook, {
+          runtime,
+          task: failedTask,
+          run: failed.run,
+          milestone: 'execution_failed',
+          detail: execution.result.stderr || execution.result.stdout || 'OpenClaw execution failed'
+        });
         const trace = await collectRunTrace(store, runId);
         return {
           task: failedTask,
@@ -820,12 +842,26 @@ export async function processOneQueuedRun(options = {}) {
         tokensIn: execution.usage?.input || 0,
         tokensOut: execution.usage?.output || 0
       });
+      await safeMemoryHook(afterMilestoneHook, {
+        runtime,
+        task: await getTaskFromPostgres(store, runningRun.taskId),
+        run: completed.run,
+        milestone: 'execution_completed',
+        detail: `Completed phase ${runningRun.workerRole || 'builder'} with profile ${execution.actualModel || runningRun.modelProfile}`
+      });
     } else {
       const artifact = await withLeaseHeartbeat(store, runId, {
         attemptCount: runningRun.attemptCount,
         run: async () => writePostgresArtifact(runtime, runningRun, taskBeforeComplete)
       });
       completed = await completeRunInPostgres(store, runId, artifact);
+      await safeMemoryHook(afterMilestoneHook, {
+        runtime,
+        task: await getTaskFromPostgres(store, runningRun.taskId),
+        run: completed.run,
+        milestone: 'execution_completed',
+        detail: `Completed scaffold phase ${runningRun.workerRole || 'builder'}`
+      });
     }
 
     let queuedNextRun = null;
@@ -836,6 +872,13 @@ export async function processOneQueuedRun(options = {}) {
         nextRunId: completed.nextRun.id,
         nextWorkerRole: completed.nextRun.workerRole,
         nextPhaseIndex: completed.nextRun.phaseIndex
+      });
+      await safeMemoryHook(afterMilestoneHook, {
+        runtime,
+        task: await getTaskFromPostgres(store, runningRun.taskId),
+        run: completed.run,
+        milestone: 'next_phase_enqueued',
+        detail: `Queued next phase ${completed.nextRun.workerRole || 'builder'} (${completed.nextRun.id})`
       });
     }
 
@@ -858,6 +901,13 @@ export async function processOneQueuedRun(options = {}) {
         skipped: !target || (process.env.SOFIA_REPORT_CHANNEL || 'telegram') !== 'telegram',
         error: approvalNotification.error?.message || approvalNotification.stderr || null
       });
+      await safeMemoryHook(afterMilestoneHook, {
+        runtime,
+        task,
+        run: completed.run,
+        milestone: 'approval_requested',
+        detail: `Approval requested for phase ${completed.pendingApproval.phaseName}`
+      });
     }
     if (!completed.nextRun && task?.status === 'completed' && task.workflowTemplate !== 'builder_only') {
       const taskRuns = await listTaskRuns(store, runningRun.taskId);
@@ -867,6 +917,13 @@ export async function processOneQueuedRun(options = {}) {
         artifactKind: workflowSummaryArtifact.kind,
         artifactUri: workflowSummaryArtifact.uri,
         runCount: taskRuns.length
+      });
+      await safeMemoryHook(afterMilestoneHook, {
+        runtime,
+        task,
+        run: completed.run,
+        milestone: 'workflow_completed',
+        detail: `Workflow completed with ${taskRuns.length} phase run(s).`
       });
     }
     const trace = await collectRunTrace(store, runId);
@@ -908,6 +965,11 @@ export async function startTask(taskId) {
     await ensureSchema(store);
     const queued = await queueTaskRunInPostgres(store, taskId);
     await enqueueRun(queue, queued.run.id);
+    await safeMemoryHook(afterResumeHook, {
+      runtime: getRuntimePaths(),
+      task: queued.task,
+      reason: 'task_started'
+    });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {
       const processed = await processTaskInlineUntilSettled(store, taskId);
@@ -954,6 +1016,11 @@ export async function approveTask(taskId, input = {}) {
     await ensureSchema(store);
     const approved = await approveTaskInPostgres(store, taskId, input);
     await enqueueRun(queue, approved.run.id);
+    await safeMemoryHook(afterResumeHook, {
+      runtime: getRuntimePaths(),
+      task: approved.task,
+      reason: 'approval_resumed'
+    });
 
     const target = getTelegramApprovalTarget(getRuntimePaths());
     if ((process.env.SOFIA_REPORT_CHANNEL || 'telegram') === 'telegram' && target) {
@@ -1037,6 +1104,11 @@ export async function replayDeadLetterRun(runId, input = {}) {
     await ensureSchema(store);
     const replayed = await replayDeadLetterRunInPostgres(store, runId, input);
     await enqueueRun(queue, replayed.run.id);
+    await safeMemoryHook(afterResumeHook, {
+      runtime: getRuntimePaths(),
+      task: replayed.task,
+      reason: 'dead_letter_replayed'
+    });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {
       const processed = await processTaskInlineUntilSettled(store, replayed.task.id);
