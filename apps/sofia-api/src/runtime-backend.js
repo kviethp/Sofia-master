@@ -356,7 +356,14 @@ export async function createTask(input = {}) {
   const store = createPostgresStore();
   try {
     await ensureSchema(store);
-    return await createTaskInPostgres(store, resolvedInput);
+    const created = await createTaskInPostgres(store, resolvedInput);
+    await safeMemoryHook(afterResumeHook, {
+      runtime: getRuntimePaths(),
+      task: created,
+      reason: 'task_created',
+      sourceText: [resolvedInput.title, resolvedInput.description, resolvedInput.note].filter(Boolean).join(' | ')
+    });
+    return created;
   } finally {
     await closePostgresStore(store);
   }
@@ -968,7 +975,8 @@ export async function startTask(taskId) {
     await safeMemoryHook(afterResumeHook, {
       runtime: getRuntimePaths(),
       task: queued.task,
-      reason: 'task_started'
+      reason: 'task_started',
+      sourceText: [queued.task.title, queued.task.currentPhase, queued.task.workflowTemplate].filter(Boolean).join(' | ')
     });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {
@@ -1019,7 +1027,8 @@ export async function approveTask(taskId, input = {}) {
     await safeMemoryHook(afterResumeHook, {
       runtime: getRuntimePaths(),
       task: approved.task,
-      reason: 'approval_resumed'
+      reason: 'approval_resumed',
+      sourceText: [input.note, input.decisionBy, approved.approval?.phaseName].filter(Boolean).join(' | ')
     });
 
     const target = getTelegramApprovalTarget(getRuntimePaths());
@@ -1077,6 +1086,14 @@ export async function rejectTask(taskId, input = {}) {
   try {
     await ensureSchema(store);
     const rejected = await rejectTaskInPostgres(store, taskId, input);
+    await safeMemoryHook(afterMilestoneHook, {
+      runtime: getRuntimePaths(),
+      task: rejected.task,
+      run: null,
+      milestone: 'approval_rejected',
+      detail: `Approval rejected for task ${rejected.task?.title || taskId}.`,
+      sourceText: [input.note, input.decisionBy].filter(Boolean).join(' | ')
+    });
     const approvals = await listTaskApprovals(store, taskId);
     const runs = await listTaskRuns(store, taskId);
     return {
@@ -1107,7 +1124,8 @@ export async function replayDeadLetterRun(runId, input = {}) {
     await safeMemoryHook(afterResumeHook, {
       runtime: getRuntimePaths(),
       task: replayed.task,
-      reason: 'dead_letter_replayed'
+      reason: 'dead_letter_replayed',
+      sourceText: [input.note, input.reason].filter(Boolean).join(' | ')
     });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {

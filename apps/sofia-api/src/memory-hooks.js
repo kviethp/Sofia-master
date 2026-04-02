@@ -202,7 +202,7 @@ function buildMilestoneBrief({task, run, milestone, detail = '', artifactUri = '
   return detailText || `Milestone ${milestone} recorded for ${title}.`;
 }
 
-export async function afterResumeHook({runtime, task, reason = 'resume'}) {
+export async function afterResumeHook({runtime, task, reason = 'resume', sourceText = ''}) {
   const taskId = task?.id;
   if (!taskId) return {ok: false, skipped: true, reason: 'missing_task_id'};
   const {state, recentTurns} = await loadTaskContext(runtime, task, taskId);
@@ -216,6 +216,9 @@ export async function afterResumeHook({runtime, task, reason = 'resume'}) {
   state.rollingSummary = state.rollingSummary || `Task resumed via ${reason}.`;
   state.nextSteps = uniq([...(state.nextSteps || []), 'Continue the active workflow from the current phase.']);
   appendRecentTurn(recentTurns, 'system', `Task resumed: ${task.title}`, {reason});
+  if (sourceText) {
+    appendRecentTurn(recentTurns, 'user', shortText(sourceText, 280), {reason, derived: true});
+  }
   await persistTaskContext(runtime, task, taskId, state, recentTurns);
   return {ok: true, taskId, hook: 'after_resume'};
 }
@@ -247,7 +250,7 @@ export async function beforeCompactionHook({runtime, task, run, reason = 'before
   return {ok: true, taskId, hook: 'before_compaction'};
 }
 
-export async function afterMilestoneHook({runtime, task, run, milestone, detail = '', artifactUri = '', replyText = ''}) {
+export async function afterMilestoneHook({runtime, task, run, milestone, detail = '', artifactUri = '', replyText = '', sourceText = ''}) {
   const taskId = task?.id;
   if (!taskId) return {ok: false, skipped: true, reason: 'missing_task_id'};
   const {state, recentTurns} = await loadTaskContext(runtime, task, taskId);
@@ -285,6 +288,9 @@ export async function afterMilestoneHook({runtime, task, run, milestone, detail 
   ]);
   pushMilestone(state, {hook: 'after_milestone', milestone, runId: run?.id || null, workerRole: run?.workerRole || null, detail, artifactUri});
   appendRecentTurn(recentTurns, 'system', `${milestone}: ${milestoneBrief || detail || task?.title || taskId}`, {runId: run?.id || null});
+  if (sourceText) {
+    appendRecentTurn(recentTurns, 'user', shortText(sourceText, 280), {runId: run?.id || null, derived: true});
+  }
   if (replyText) {
     appendRecentTurn(recentTurns, 'assistant', shortText(replyText, 280), {runId: run?.id || null, derived: true});
   }
