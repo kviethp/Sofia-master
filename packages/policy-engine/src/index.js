@@ -154,6 +154,79 @@ export function isFreeTierAllowed({risk} = {}) {
   return normalizedRisk === 'low' || normalizedRisk === 'medium';
 }
 
+
+function estimatePromptComplexity({title = '', workerRole = '', workflowTemplate = '', currentPhase = ''} = {}) {
+  const combined = [title, workerRole, workflowTemplate, currentPhase].filter(Boolean).join(' ');
+  const length = combined.length;
+  if (length >= 180) return 'high';
+  if (length >= 90) return 'medium';
+  return 'low';
+}
+
+function inferLatencyTarget({risk, workerRole} = {}) {
+  const normalizedRisk = normalizeRisk(risk);
+  const normalizedRole = normalizeRole(workerRole);
+  if (normalizedRisk === 'low' && (normalizedRole === 'triage' || normalizedRole === 'classifier' || normalizedRole === 'extractor')) {
+    return 'low-latency';
+  }
+  if (normalizedRisk === 'critical' || normalizedRisk === 'high') {
+    return 'high-quality';
+  }
+  return 'balanced';
+}
+
+export function resolveAdaptiveModelProfile({task = null, run = null, degraded = false} = {}) {
+  const role = run?.workerRole || task?.currentPhase || 'builder';
+  const risk = task?.risk || 'medium';
+  const normalizedRisk = normalizeRisk(risk);
+  const normalizedRole = normalizeRole(role);
+  const complexity = estimatePromptComplexity({
+    title: task?.title || '',
+    workerRole: normalizedRole,
+    workflowTemplate: task?.workflowTemplate || '',
+    currentPhase: task?.currentPhase || ''
+  });
+  const latencyTarget = inferLatencyTarget({risk, workerRole: normalizedRole});
+  const reasons = [];
+
+  if (degraded) {
+    const profile = isFreeTierAllowed({risk}) ? PROFILE_FREE : PROFILE_HARD;
+    reasons.push(`degraded_mode:${profile}`);
+    return {profile, reasons, complexity, latencyTarget};
+  }
+
+  if (normalizedRisk in {critical:1, high:1}) {
+    reasons.push(`risk:${normalizedRisk}`);
+    return {profile: PROFILE_HARD, reasons, complexity, latencyTarget};
+  }
+
+  if (normalizedRole === 'planner' || normalizedRole === 'verifier') {
+    reasons.push(`phase:${normalizedRole}`);
+    return {profile: PROFILE_HARD, reasons, complexity, latencyTarget};
+  }
+
+  if (complexity == 'high') {
+    reasons.push('complexity:high');
+    return {profile: PROFILE_HARD, reasons, complexity, latencyTarget};
+  }
+
+  if (normalizedRole === 'triage' || normalizedRole === 'classifier' || normalizedRole === 'extractor') {
+    reasons.push(`phase:${normalizedRole}`);
+    reasons.push(`latency:${latencyTarget}`);
+    return {profile: PROFILE_FAST, reasons, complexity, latencyTarget};
+  }
+
+  if (normalizedRisk in {low:1, medium:1}) {
+    reasons.push(`risk:${normalizedRisk}`);
+    reasons.push(`complexity:${complexity}`);
+    reasons.push(`latency:${latencyTarget}`);
+    return {profile: PROFILE_FAST, reasons, complexity, latencyTarget};
+  }
+
+  reasons.push('fallback:hard');
+  return {profile: PROFILE_HARD, reasons, complexity, latencyTarget};
+}
+
 export function resolveModelProfile({role, risk, degraded = false} = {}) {
   const forcedProfile = String(process.env.SOFIA_FORCE_MODEL_PROFILE || '').trim();
   if (VALID_PROFILES.has(forcedProfile)) {
