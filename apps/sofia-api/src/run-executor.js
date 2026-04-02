@@ -42,25 +42,88 @@ const PHASE_ARTIFACTS = {
   }
 };
 
-function createTaskPrompt(task, run) {
+async function loadTaskMemoryContext(runtime, task) {
+  const taskId = task?.id;
+  if (!taskId) {
+    return {
+      resumeBlock: '',
+      recentTurns: []
+    };
+  }
+
+  const memoryDir = path.join(runtime.stateDir, 'memory', 'tasks', String(taskId));
+  const resumeBlockPath = path.join(memoryDir, 'resume-block.md');
+  const recentTurnsPath = path.join(memoryDir, 'recent-turns.json');
+
+  let resumeBlock = '';
+  let recentTurns = [];
+
+  try {
+    resumeBlock = await fs.readFile(resumeBlockPath, 'utf8');
+  } catch {}
+
+  try {
+    const parsed = JSON.parse(await fs.readFile(recentTurnsPath, 'utf8'));
+    recentTurns = Array.isArray(parsed?.turns) ? parsed.turns.slice(-8) : [];
+  } catch {}
+
+  return {
+    resumeBlock: String(resumeBlock || '').trim(),
+    recentTurns
+  };
+}
+
+function formatRecentTurnsForPrompt(turns = []) {
+  if (!Array.isArray(turns) || turns.length === 0) {
+    return '';
+  }
+
+  return turns
+    .map((turn) => {
+      const role = String(turn?.role || 'unknown');
+      const text = String(turn?.text || '').replace(/\s+/g, ' ').trim();
+      return text ? `- ${role}: ${text.slice(0, 280)}${text.length > 280 ? '...' : ''}` : null;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+
+function createTaskPrompt(task, run, memoryContext = {}) {
   const workerRole = run?.workerRole || 'builder';
   const phaseInstructions = {
     planner: 'Produce a short implementation plan and explicit constraints for the next worker.',
     builder: 'Produce a short execution summary focused on what would be built or changed.',
     verifier: 'Produce a short verification summary focused on checks, risks, and exit criteria.'
   };
-  return [
+  const recentTurnsBlock = formatRecentTurnsForPrompt(memoryContext.recentTurns || []);
+  const lines = [
     'You are executing a Sofia Master control-plane probe for a queued task.',
     `Task title: ${task.title}`,
     `Risk: ${task.risk}`,
-    `Workflow phase: ${workerRole}`,
+    `Workflow phase: ${workerRole}`
+  ];
+
+  if (memoryContext.resumeBlock) {
+    lines.push('', '### Active Task Memory', memoryContext.resumeBlock);
+  }
+
+  if (recentTurnsBlock) {
+    lines.push('', '### Recent Turns', recentTurnsBlock);
+  }
+
+  lines.push(
+    '',
     'This probe must not create, edit, move, or delete files.',
     'Do not run commands, call tools, or access the network.',
+    'Use the active task memory and recent turns only as compact carry-forward context.',
     phaseInstructions[workerRole] || 'Produce a short operational summary for this workflow phase.',
     'Respond with a short execution summary in plain text only.',
     'Keep the answer concise and operational.',
     'Do not mention hidden chain-of-thought.'
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 function buildReportText({task, run, status, details}) {
@@ -191,7 +254,8 @@ export async function runTaskWithOpenClaw({
   runtime
 }) {
   const sessionId = `sofia-${run.id}`;
-  const prompt = createTaskPrompt(task, run);
+  const memoryContext = await loadTaskMemoryContext(runtime, task);
+  const prompt = createTaskPrompt(task, run, memoryContext);
   const startedAt = new Date().toISOString();
   const config = validateOpenClawConfig(runtime.openClawConfigPath);
   const requestedProfile = run.modelProfile || 'sofia-hard';
@@ -371,6 +435,10 @@ export async function runTaskWithOpenClaw({
     selectedAgentId: selectedProfile.agentId,
     selectedModelId: selectedProfile.modelId,
     prompt,
+    memoryContext: {
+      hasResumeBlock: Boolean(memoryContext.resumeBlock),
+      recentTurnCount: Array.isArray(memoryContext.recentTurns) ? memoryContext.recentTurns.length : 0
+    },
     stdout: result.stdout,
     stderr: result.stderr,
     parsed: result.parsed,
