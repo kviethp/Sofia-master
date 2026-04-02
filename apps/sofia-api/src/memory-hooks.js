@@ -171,6 +171,37 @@ function pushMilestone(state, milestone) {
   state.milestones = state.milestones.slice(-30);
 }
 
+
+function shortText(value, max = 320) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function buildMilestoneBrief({task, run, milestone, detail = '', artifactUri = '', replyText = ''}) {
+  const title = task?.title || run?.taskId || 'unknown task';
+  const phase = run?.workerRole || 'builder';
+  const runId = run?.id || 'unknown';
+  const detailText = shortText(detail, 220);
+  const reply = shortText(replyText, 220);
+
+  if (milestone === 'execution_failed') {
+    return `Run ${runId} failed during ${phase} for ${title}. Likely issue: ${detailText || 'execution error'}. Next safe action: inspect the run trace and decide whether to retry, request approval, or reduce scope.`;
+  }
+  if (milestone === 'approval_requested') {
+    return `Task ${title} is waiting for approval after phase ${phase}. Pending decision should be resolved before execution continues.`;
+  }
+  if (milestone === 'workflow_completed') {
+    return `Workflow for ${title} completed successfully. Next safe action: review artifacts, summarize outcomes, and close or hand off the task.`;
+  }
+  if (milestone === 'next_phase_enqueued') {
+    return `Phase ${phase} completed for ${title}; the next phase has been queued. Continue using the latest carry-forward state.`;
+  }
+  if (milestone === 'execution_completed') {
+    return `Run ${runId} completed phase ${phase} for ${title}. ${reply ? `Execution summary: ${reply}` : 'Next safe action: continue with the next phase or finalize if complete.'}`;
+  }
+  return detailText || `Milestone ${milestone} recorded for ${title}.`;
+}
+
 export async function afterResumeHook({runtime, task, reason = 'resume'}) {
   const taskId = task?.id;
   if (!taskId) return {ok: false, skipped: true, reason: 'missing_task_id'};
@@ -216,13 +247,14 @@ export async function beforeCompactionHook({runtime, task, run, reason = 'before
   return {ok: true, taskId, hook: 'before_compaction'};
 }
 
-export async function afterMilestoneHook({runtime, task, run, milestone, detail = ''}) {
+export async function afterMilestoneHook({runtime, task, run, milestone, detail = '', artifactUri = '', replyText = ''}) {
   const taskId = task?.id;
   if (!taskId) return {ok: false, skipped: true, reason: 'missing_task_id'};
   const {state, recentTurns} = await loadTaskContext(runtime, task, taskId);
   state.currentTask = task?.title || state.currentTask;
   state.goal = state.goal || task?.title || '';
-  state.rollingSummary = detail || state.rollingSummary || `Milestone reached: ${milestone}`;
+  const milestoneBrief = buildMilestoneBrief({task, run, milestone, detail, artifactUri, replyText});
+  state.rollingSummary = milestoneBrief || detail || state.rollingSummary || `Milestone reached: ${milestone}`;
 
   if (milestone === 'execution_completed') {
     state.decisions = uniq([...(state.decisions || []), `Completed phase ${run?.workerRole || 'builder'} for run ${run?.id || 'unknown'}.`]);
@@ -243,10 +275,19 @@ export async function afterMilestoneHook({runtime, task, run, milestone, detail 
   state.fileTaskReferences = uniq([
     ...(state.fileTaskReferences || []),
     run?.id ? `.sofia/artifacts/${run.id}` : '',
+    artifactUri || '',
     task?.id ? `.sofia/state/tasks/${task.id}` : ''
   ]);
-  pushMilestone(state, {hook: 'after_milestone', milestone, runId: run?.id || null, workerRole: run?.workerRole || null, detail});
-  appendRecentTurn(recentTurns, 'system', `${milestone}: ${detail || task?.title || taskId}`, {runId: run?.id || null});
+  state.criticalContext = uniq([
+    ...(state.criticalContext || []),
+    milestone === 'execution_failed' ? milestoneBrief : '',
+    milestone === 'approval_requested' ? milestoneBrief : ''
+  ]);
+  pushMilestone(state, {hook: 'after_milestone', milestone, runId: run?.id || null, workerRole: run?.workerRole || null, detail, artifactUri});
+  appendRecentTurn(recentTurns, 'system', `${milestone}: ${milestoneBrief || detail || task?.title || taskId}`, {runId: run?.id || null});
+  if (replyText) {
+    appendRecentTurn(recentTurns, 'assistant', shortText(replyText, 280), {runId: run?.id || null, derived: true});
+  }
   await persistTaskContext(runtime, task, taskId, state, recentTurns);
   return {ok: true, taskId, hook: 'after_milestone', milestone};
 }
