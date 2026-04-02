@@ -10,7 +10,7 @@ import {
   validateOpenClawConfig
 } from '../../../packages/openclaw-adapter/src/index.js';
 import {resolveCompiledSkillRegistry} from '../../../packages/skill-compiler/src/index.js';
-import {evaluateExecutionGuardrails, evaluateSkillGate, resolveRequiredSkillIds} from '../../../packages/policy-engine/src/index.js';
+import {evaluateExecutionGuardrails, evaluateSkillGate, resolveAdaptiveModelProfile, resolveRequiredSkillIds} from '../../../packages/policy-engine/src/index.js';
 
 const OPENCLAW_AGENT_PROFILES = {
   'sofia-hard': {
@@ -194,7 +194,8 @@ export async function runTaskWithOpenClaw({
   const prompt = createTaskPrompt(task, run);
   const startedAt = new Date().toISOString();
   const config = validateOpenClawConfig(runtime.openClawConfigPath);
-  const requestedProfile = run.modelProfile || 'sofia-hard';
+  const adaptiveRouting = resolveAdaptiveModelProfile({task, run, degraded: false});
+  const requestedProfile = run.modelProfile || adaptiveRouting.profile || 'sofia-hard';
   const selectedProfile = resolveOpenClawAgentProfile(requestedProfile);
   const telegramTarget = process.env.SOFIA_REPORT_TARGET || getDefaultTelegramTarget(config);
   const reportsEnabled = (process.env.SOFIA_REPORT_CHANNEL || 'telegram') === 'telegram' && Boolean(telegramTarget);
@@ -234,6 +235,7 @@ export async function runTaskWithOpenClaw({
         requestedProfile,
         selectedAgentId: selectedProfile.agentId,
         selectedModelId: selectedProfile.modelId,
+        adaptiveRouting,
         skills: skillGate,
         skillRegistry: {
           status: skillRegistry.status,
@@ -265,6 +267,7 @@ export async function runTaskWithOpenClaw({
         requestedProfile,
         selectedAgentId: selectedProfile.agentId,
         selectedModelId: selectedProfile.modelId,
+        adaptiveRouting,
         skills: skillGate,
         skillRegistry: {
           status: skillRegistry.status,
@@ -302,6 +305,7 @@ export async function runTaskWithOpenClaw({
         requestedProfile,
         selectedAgentId: selectedProfile.agentId,
         selectedModelId: selectedProfile.modelId,
+        adaptiveRouting,
         skills: skillGate,
         skillRegistry: {
           status: skillRegistry.status,
@@ -370,6 +374,7 @@ export async function runTaskWithOpenClaw({
     requestedProfile,
     selectedAgentId: selectedProfile.agentId,
     selectedModelId: selectedProfile.modelId,
+    adaptiveRouting,
     prompt,
     stdout: result.stdout,
     stderr: result.stderr,
@@ -459,6 +464,7 @@ export async function runTaskWithOpenClaw({
       requestedProfile,
       selectedAgentId: selectedProfile.agentId,
       selectedModelId: selectedProfile.modelId,
+      adaptiveRouting,
       notifications: notificationEvents,
       skills: skillGate,
       skillRegistry: {
