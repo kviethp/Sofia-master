@@ -221,6 +221,18 @@ function getTelegramApprovalTarget(runtime) {
   return process.env.SOFIA_REPORT_TARGET || getDefaultTelegramTarget(config);
 }
 
+
+function createDecisionJournal({decisionType, selectedOption, rationale, alternatives = [], rollbackSignal = '', extra = {}}) {
+  return {
+    decisionType,
+    selectedOption,
+    rationale,
+    alternatives,
+    rollbackSignal: rollbackSignal || null,
+    ...extra
+  };
+}
+
 function buildApprovalRequestMessage(task, approval) {
   return [
     'Sofia approval required',
@@ -752,16 +764,24 @@ export async function processOneQueuedRun(options = {}) {
         category: 'routing',
         subject: 'openclaw_agent',
         outcome: execution.ok ? 'executed' : 'attempted',
-        evidence: {
-          sessionId: execution.trace?.sessionId || `sofia-${runId}`,
-          requestedProfile: execution.trace?.requestedProfile || runningRun.modelProfile,
-          selectedAgentId: execution.trace?.selectedAgentId || null,
-          selectedModelId: execution.trace?.selectedModelId || null,
-          actualModel: execution.actualModel || null,
-          actualProvider: execution.actualProvider || null,
-          fallbackDepth: 0,
-          degraded: (execution.trace?.requestedProfile || runningRun.modelProfile) === 'sofia-free-fallback'
-        }
+        evidence: createDecisionJournal({
+          decisionType: 'model_routing',
+          selectedOption: execution.trace?.requestedProfile || runningRun.modelProfile,
+          rationale: execution.trace?.adaptiveRouting?.reasons?.join('; ') || 'static or explicit profile selection',
+          alternatives: ['sofia-fast', 'sofia-hard', 'sofia-free-fallback'].filter((entry) => entry !== (execution.trace?.requestedProfile || runningRun.modelProfile)),
+          rollbackSignal: execution.trace?.guardrails?.ok === false ? 'guardrail_violation' : '',
+          extra: {
+            sessionId: execution.trace?.sessionId || `sofia-${runId}`,
+            requestedProfile: execution.trace?.requestedProfile || runningRun.modelProfile,
+            selectedAgentId: execution.trace?.selectedAgentId || null,
+            selectedModelId: execution.trace?.selectedModelId || null,
+            actualModel: execution.actualModel || null,
+            actualProvider: execution.actualProvider || null,
+            fallbackDepth: 0,
+            degraded: (execution.trace?.requestedProfile || runningRun.modelProfile) === 'sofia-free-fallback',
+            adaptiveRouting: execution.trace?.adaptiveRouting || null
+          }
+        })
       });
 
       if (execution.trace?.guardrails) {
@@ -769,7 +789,14 @@ export async function processOneQueuedRun(options = {}) {
           category: 'policy',
           subject: 'execution_guardrails',
           outcome: execution.trace.guardrails.ok ? 'passed' : 'blocked',
-          evidence: execution.trace.guardrails
+          evidence: createDecisionJournal({
+            decisionType: 'policy_guardrail',
+            selectedOption: execution.trace.guardrails.ok ? 'allow' : 'block',
+            rationale: execution.trace.guardrails.ok ? 'execution stayed within configured provider/token policies' : 'execution violated provider/token policy constraints',
+            alternatives: execution.trace.guardrails.ok ? [] : ['retry_with_lower_cost_path', 'retry_with_safer_profile', 'manual_review'],
+            rollbackSignal: execution.trace.guardrails.ok ? '' : 'policy_violation',
+            extra: execution.trace.guardrails
+          })
         });
       }
 
