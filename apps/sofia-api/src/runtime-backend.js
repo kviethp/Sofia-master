@@ -263,6 +263,21 @@ async function collectRunTrace(store, runId) {
   return {artifacts, steps, decisions, usageEntries};
 }
 
+
+function extractRouteExplainability(run, artifacts = []) {
+  const artifact = artifacts.find((entry) => ['plan', 'build', 'verify', 'report'].includes(entry?.kind));
+  return {
+    requestedProfile: run?.modelProfile || null,
+    workerRole: run?.workerRole || null,
+    artifactUri: artifact?.uri || null,
+    adaptiveRouting: artifact?.payload?.adaptiveRouting || null,
+    selectedAgentId: artifact?.payload?.selectedAgentId || null,
+    selectedModelId: artifact?.payload?.selectedModelId || null,
+    actualModel: artifact?.payload?.agentMeta?.model || null,
+    actualProvider: artifact?.payload?.agentMeta?.provider || null
+  };
+}
+
 async function processTaskInlineUntilSettled(store, taskId) {
   let processed = null;
   let iterations = 0;
@@ -432,6 +447,7 @@ export async function listRuns(options = {}) {
       const trace = await collectRunTrace(store, run.id);
       enriched.push({
         ...run,
+        routeExplainability: extractRouteExplainability(run, trace.artifacts),
         artifacts: trace.artifacts,
         steps: trace.steps,
         decisions: trace.decisions,
@@ -1086,6 +1102,7 @@ export async function getRun(runId) {
     const trace = await collectRunTrace(store, runId);
     return {
       ...run,
+      routeExplainability: extractRouteExplainability(run, trace.artifacts),
       artifacts: trace.artifacts,
       steps: trace.steps,
       decisions: trace.decisions,
