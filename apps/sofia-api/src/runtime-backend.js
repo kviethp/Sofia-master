@@ -1233,7 +1233,22 @@ export async function startTask(taskId) {
 
   try {
     await ensureSchema(store);
-    const queued = await queueTaskRunInPostgres(store, taskId);
+    let queued;
+    try {
+      queued = await queueTaskRunInPostgres(store, taskId);
+    } catch (error) {
+      if (error?.code === 'SOFIA_TASK_BLOCKED') {
+        const task = await getTaskFromPostgres(store, taskId);
+        return {
+          task,
+          blocked: true,
+          blockedReason: error.message,
+          dependencyState: error.details,
+          storageMode: 'postgres-redis'
+        };
+      }
+      throw error;
+    }
     await enqueueRun(queue, queued.run.id);
     await safeMemoryHook(afterResumeHook, {
       runtime: getRuntimePaths(),
