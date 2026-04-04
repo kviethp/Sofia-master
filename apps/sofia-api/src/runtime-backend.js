@@ -362,6 +362,24 @@ function extractRouteExplainability(run, artifacts = []) {
 }
 
 
+function extractSkillExplainability(artifacts = [], decisions = []) {
+  const artifact = artifacts.find((entry) => ['plan', 'build', 'verify', 'report'].includes(entry?.kind));
+  const skillDecision = decisions.find((entry) => entry?.subject === 'required_skills');
+  const skillGate = artifact?.payload?.skillGate || artifact?.payload?.skills || null;
+  const skillRegistry = artifact?.payload?.skillRegistry || null;
+  return {
+    requiredSkillIds: skillGate?.requiredSkillIds || [],
+    selectedSkills: skillGate?.selectedSkills || [],
+    skillGateOk: skillGate?.ok ?? null,
+    skillViolations: skillGate?.violations || [],
+    registryStatus: skillRegistry?.status || skillDecision?.evidence?.registry?.status || null,
+    skillCount: skillRegistry?.skillCount ?? skillDecision?.evidence?.registry?.skillCount ?? null,
+    manifestPath: skillRegistry?.manifestPath || skillDecision?.evidence?.registry?.manifestPath || null,
+    rationale: skillDecision?.evidence?.rationale || null
+  };
+}
+
+
 function summarizeDecisionJournal(decisions = []) {
   return decisions.map((entry) => ({
     id: entry.id,
@@ -606,6 +624,7 @@ export async function listRuns(options = {}) {
       enriched.push({
         ...run,
         routeExplainability: extractRouteExplainability(run, trace.artifacts),
+        skillExplainability: extractSkillExplainability(trace.artifacts, trace.decisions),
         decisionJournal: summarizeDecisionJournal(trace.decisions),
         replayState: extractReplayState(trace.decisions),
         completionQualityGate: trace.decisions.find((entry) => entry?.subject === 'completion_gate')?.evidence || null,
@@ -694,7 +713,10 @@ export async function getRuntimeStatus() {
         degradedMode: runtime.degraded?.mode || 'healthy',
         degradedReasons: runtime.degraded?.reasons || [],
         workerInline: base.worker.inline,
-        executionMode: runtime.degraded?.executionMode || (useOpenClawExecution() ? 'openclaw' : 'scaffold')
+        executionMode: runtime.degraded?.executionMode || (useOpenClawExecution() ? 'openclaw' : 'scaffold'),
+        skillRegistryStatus: skills?.status || null,
+        requiredSkillIds: skills?.requiredSkillIds || [],
+        skillCount: skills?.skillCount ?? 0
       },
       queue: queueStats,
       tasksByStatus: summary.tasksByStatus,
@@ -1407,6 +1429,7 @@ export async function getRun(runId) {
     return {
       ...run,
       routeExplainability: extractRouteExplainability(run, trace.artifacts),
+      skillExplainability: extractSkillExplainability(trace.artifacts, trace.decisions),
       decisionJournal: summarizeDecisionJournal(trace.decisions),
       replayState: extractReplayState(trace.decisions),
       completionQualityGate: trace.decisions.find((entry) => entry?.subject === 'completion_gate')?.evidence || null,
