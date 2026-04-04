@@ -1,6 +1,8 @@
 ---
-name: sofia-memory
-description: Maintain Sofia Master's durable working-memory state for long-running tasks, task continuity, context compaction, resume flows, conversation state storage, task-scoped memory, compaction trigger checks, validation, summary patching, and orchestration cycles. Use when Sofia risks losing active task context or needs to preserve recent turns, rolling summary, unresolved goals, decisions, constraints, next steps, or file/task references across context resets.
+{
+  "name": "sofia-memory",
+  "description": "Maintain Sofia Master's durable working-memory state for long-running tasks, task continuity, context compaction, resume flows, conversation state storage, task-scoped memory, compaction trigger checks, validation, summary patching, and orchestration cycles. Use when Sofia risks losing active task context or needs to preserve recent turns, rolling summary, unresolved goals, decisions, constraints, next steps, or file/task references across context resets."
+}
 ---
 
 # Sofia Memory
