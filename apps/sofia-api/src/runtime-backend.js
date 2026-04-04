@@ -360,6 +360,33 @@ function extractRouteExplainability(run, artifacts = []) {
   };
 }
 
+
+function summarizeDecisionJournal(decisions = []) {
+  return decisions.map((entry) => ({
+    id: entry.id,
+    category: entry.category,
+    subject: entry.subject,
+    outcome: entry.outcome,
+    decisionType: entry.evidence?.decisionType || null,
+    selectedOption: entry.evidence?.selectedOption || null,
+    rationale: entry.evidence?.rationale || null,
+    rollbackSignal: entry.evidence?.rollbackSignal || null,
+    createdAt: entry.createdAt
+  }));
+}
+
+function summarizeTaskExplainability(task, runs = [], approvals = []) {
+  const latestRun = runs[runs.length - 1] || null;
+  return {
+    currentPhase: task?.currentPhase || null,
+    status: task?.status || null,
+    latestRunId: latestRun?.id || null,
+    latestWorkerRole: latestRun?.workerRole || null,
+    pendingApprovalCount: approvals.filter((entry) => entry?.status === 'pending').length,
+    runCount: runs.length
+  };
+}
+
 async function processTaskInlineUntilSettled(store, taskId) {
   let processed = null;
   let iterations = 0;
@@ -481,6 +508,7 @@ export async function getTask(taskId) {
     return task
       ? {
           ...task,
+          explainability: summarizeTaskExplainability(task, runs, approvals),
           runs,
           approvals
         }
@@ -508,6 +536,7 @@ export async function listTasks(options = {}) {
       ]);
       enriched.push({
         ...task,
+        explainability: summarizeTaskExplainability(task, runs, approvals),
         runs,
         approvals
       });
@@ -534,6 +563,7 @@ export async function listRuns(options = {}) {
       enriched.push({
         ...run,
         routeExplainability: extractRouteExplainability(run, trace.artifacts),
+        decisionJournal: summarizeDecisionJournal(trace.decisions),
         artifacts: trace.artifacts,
         steps: trace.steps,
         decisions: trace.decisions,
@@ -615,6 +645,12 @@ export async function getRuntimeStatus() {
 
     return {
       ...base,
+      explainability: {
+        degradedMode: runtime.degraded?.mode || 'healthy',
+        degradedReasons: runtime.degraded?.reasons || [],
+        workerInline: base.worker.inline,
+        executionMode: runtime.degraded?.executionMode || (useOpenClawExecution() ? 'openclaw' : 'scaffold')
+      },
       queue: queueStats,
       tasksByStatus: summary.tasksByStatus,
       runsByStatus: summary.runsByStatus,
@@ -1221,6 +1257,7 @@ export async function getRun(runId) {
     return {
       ...run,
       routeExplainability: extractRouteExplainability(run, trace.artifacts),
+      decisionJournal: summarizeDecisionJournal(trace.decisions),
       artifacts: trace.artifacts,
       steps: trace.steps,
       decisions: trace.decisions,
