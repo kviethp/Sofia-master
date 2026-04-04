@@ -103,11 +103,7 @@ async function collectSkillFiles(dirPath) {
       continue;
     }
 
-    if (
-      entry.isFile() &&
-      entry.name.toLowerCase().endsWith('.md') &&
-      entry.name.toLowerCase() !== 'readme.md'
-    ) {
+    if (entry.isFile() && entry.name === 'SKILL.md') {
       files.push(fullPath);
     }
   }

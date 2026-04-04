@@ -1,7 +1,12 @@
 ---
 {
-  "name": "sofia-memory",
+  "schemaVersion": "1.0.0",
+  "id": "sofia-memory",
+  "version": "1.0.0",
+  "owner": "sofia-master",
   "description": "Maintain Sofia Master durable working-memory state for long-running tasks, task continuity, context compaction, resume flows, conversation state storage, and structured progress snapshots.",
+  "intent": "Use when Sofia needs durable task continuity, compact resumable context, or structured working-memory state updates for active tasks.",
+  "trustLevel": "internal-trusted",
   "inputs": [
     "task title",
     "structured summary",
@@ -22,6 +27,11 @@
     "Updated working-memory state",
     "Resume-ready compact task context",
     "Clear next steps/open loops preserved"
+  ],
+  "qualityGates": [
+    "Produces compact, resume-ready state rather than raw transcript dumps",
+    "Preserves active goals, constraints, and unresolved loops",
+    "Keeps output scoped to working memory, not long-term memory"
   ]
 }
 ---
