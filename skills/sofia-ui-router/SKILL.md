@@ -1,6 +1,8 @@
 ---
-name: sofia-ui-router
-description: Route UI/UX-related requests in Sofia Master to the Sofia UI UX Pro Max workflow. Use when a request involves UI direction, redesign, layout, visual polish, component design, landing pages, dashboards, admin panels, forms, navigation, responsiveness, accessibility, design systems, color, typography, spacing, states, interaction quality, or frontend UX review.
+{
+  "name": "sofia-ui-router",
+  "description": "Route UI/UX-related requests in Sofia Master to the Sofia UI UX Pro Max workflow. Use when a request involves UI direction, redesign, layout, visual polish, component design, landing pages, dashboards, admin panels, forms, navigation, responsiveness, accessibility, design systems, color, typography, spacing, states, interaction quality, or frontend UX review."
+}
 ---
 
 # Sofia UI Router

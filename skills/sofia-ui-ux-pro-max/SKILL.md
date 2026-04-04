@@ -1,6 +1,8 @@
 ---
-name: sofia-ui-ux-pro-max
-description: Integrate and operate UI UX Pro Max as Sofia Master's design-intelligence layer for UI/UX planning, design-system generation, page overrides, targeted UX/style/color/typography/chart lookup, and handoff-oriented frontend guidance. Use when Sofia needs to design, review, improve, or standardize web/mobile UI before implementation.
+{
+  "name": "sofia-ui-ux-pro-max",
+  "description": "Integrate and operate UI UX Pro Max as Sofia Master's design-intelligence layer for UI/UX planning, design-system generation, page overrides, targeted UX/style/color/typography/chart lookup, and handoff-oriented frontend guidance. Use when Sofia needs to design, review, improve, or standardize web/mobile UI before implementation."
+}
 ---
 
 # Sofia UI UX Pro Max
