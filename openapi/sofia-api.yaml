@@ -890,6 +890,12 @@ components:
           type: string
         note:
           type: string
+        replayReason:
+          type: string
+          nullable: true
+        modelProfileOverride:
+          type: string
+          nullable: true
     DoctorCheck:
       type: object
       properties:
