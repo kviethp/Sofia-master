@@ -222,6 +222,76 @@ function getTelegramApprovalTarget(runtime) {
 }
 
 
+function deriveDegradedRuntimeProfile(report) {
+  const postgresOk = Boolean(report?.postgres?.ok);
+  const redisOk = Boolean(report?.redis?.ok);
+  const executionMode = useOpenClawExecution() ? 'openclaw' : 'scaffold';
+  const reasons = [];
+
+  if (!postgresOk) reasons.push('postgres_unavailable');
+  if (!redisOk) reasons.push('redis_unavailable');
+
+  if (postgresOk && redisOk) {
+    return {
+      mode: 'healthy',
+      capabilities: {
+        canReadRuntimeState: true,
+        canCreateTasks: true,
+        canQueueRuns: true,
+        canExecuteRuns: true,
+        canApprove: true,
+        canReplay: true
+      },
+      reasons,
+      executionMode
+    };
+  }
+
+  if (!postgresOk && !redisOk) {
+    return {
+      mode: 'read-only-degraded',
+      capabilities: {
+        canReadRuntimeState: true,
+        canCreateTasks: false,
+        canQueueRuns: false,
+        canExecuteRuns: false,
+        canApprove: false,
+        canReplay: false
+      },
+      reasons,
+      executionMode
+    };
+  }
+
+  return {
+    mode: 'queue-degraded',
+    capabilities: {
+      canReadRuntimeState: true,
+      canCreateTasks: false,
+      canQueueRuns: false,
+      canExecuteRuns: false,
+      canApprove: false,
+      canReplay: false
+    },
+    reasons,
+    executionMode
+  };
+}
+
+function createDegradedRuntimeError(profile, action) {
+  const error = new Error(`Runtime is in ${profile.mode}; action ${action} is temporarily unavailable.`);
+  error.code = 'SOFIA_DEGRADED_RUNTIME';
+  error.statusCode = 503;
+  error.details = {
+    mode: profile.mode,
+    reasons: profile.reasons,
+    capabilities: profile.capabilities,
+    action
+  };
+  return error;
+}
+
+
 function createDecisionJournal({decisionType, selectedOption, rationale, alternatives = [], rollbackSignal = '', extra = {}}) {
   return {
     decisionType,
@@ -369,12 +439,16 @@ export async function probeRuntimeServices() {
     report.mode = 'postgres-redis';
   }
 
+  report.degraded = deriveDegradedRuntimeProfile(report);
   return report;
 }
 
 export async function createTask(input = {}) {
   const resolvedInput = applyProjectTemplate(input);
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy' && process.env.SOFIA_ALLOW_DEGRADED_FALLBACK !== 'true') {
+    throw createDegradedRuntimeError(runtime.degraded, 'createTask');
+  }
   if (runtime.mode !== 'postgres-redis') {
     return createFilesystemTask(resolvedInput);
   }
@@ -582,6 +656,14 @@ export async function getRuntimeMetrics() {
 
 export async function processOneQueuedRun(options = {}) {
   const runtimeServices = await probeRuntimeServices();
+  if (runtimeServices.degraded?.mode && runtimeServices.degraded.mode !== 'healthy') {
+    return {
+      storageMode: runtimeServices.mode,
+      skipped: true,
+      reason: 'degraded_runtime',
+      degraded: runtimeServices.degraded
+    };
+  }
   if (runtimeServices.mode !== 'postgres-redis') {
     return null;
   }
@@ -940,6 +1022,9 @@ export async function processOneQueuedRun(options = {}) {
 
 export async function startTask(taskId) {
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy' && process.env.SOFIA_ALLOW_DEGRADED_FALLBACK !== 'true') {
+    throw createDegradedRuntimeError(runtime.degraded, 'startTask');
+  }
   if (runtime.mode !== 'postgres-redis') {
     return startFilesystemTask(taskId);
   }
@@ -987,6 +1072,9 @@ export async function startTask(taskId) {
 
 export async function approveTask(taskId, input = {}) {
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy') {
+    throw createDegradedRuntimeError(runtime.degraded, 'approveTask');
+  }
   if (runtime.mode !== 'postgres-redis') {
     throw new Error('Approval flow requires PostgreSQL and Redis runtime mode');
   }
@@ -1070,6 +1158,9 @@ export async function rejectTask(taskId, input = {}) {
 
 export async function replayDeadLetterRun(runId, input = {}) {
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy') {
+    throw createDegradedRuntimeError(runtime.degraded, 'replayDeadLetterRun');
+  }
   if (runtime.mode !== 'postgres-redis') {
     throw new Error('Dead-letter replay requires PostgreSQL and Redis runtime mode');
   }
