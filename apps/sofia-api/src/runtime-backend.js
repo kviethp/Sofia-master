@@ -222,6 +222,88 @@ function getTelegramApprovalTarget(runtime) {
   return process.env.SOFIA_REPORT_TARGET || getDefaultTelegramTarget(config);
 }
 
+
+function deriveDegradedRuntimeProfile(report) {
+  const postgresOk = Boolean(report?.postgres?.ok);
+  const redisOk = Boolean(report?.redis?.ok);
+  const executionMode = useOpenClawExecution() ? 'openclaw' : 'scaffold';
+  const reasons = [];
+
+  if (!postgresOk) reasons.push('postgres_unavailable');
+  if (!redisOk) reasons.push('redis_unavailable');
+
+  if (postgresOk && redisOk) {
+    return {
+      mode: 'healthy',
+      capabilities: {
+        canReadRuntimeState: true,
+        canCreateTasks: true,
+        canQueueRuns: true,
+        canExecuteRuns: true,
+        canApprove: true,
+        canReplay: true
+      },
+      reasons,
+      executionMode
+    };
+  }
+
+  if (!postgresOk && !redisOk) {
+    return {
+      mode: 'read-only-degraded',
+      capabilities: {
+        canReadRuntimeState: true,
+        canCreateTasks: false,
+        canQueueRuns: false,
+        canExecuteRuns: false,
+        canApprove: false,
+        canReplay: false
+      },
+      reasons,
+      executionMode
+    };
+  }
+
+  return {
+    mode: 'queue-degraded',
+    capabilities: {
+      canReadRuntimeState: true,
+      canCreateTasks: false,
+      canQueueRuns: false,
+      canExecuteRuns: false,
+      canApprove: false,
+      canReplay: false
+    },
+    reasons,
+    executionMode
+  };
+}
+
+function createDegradedRuntimeError(profile, action) {
+  const error = new Error(`Runtime is in ${profile.mode}; action ${action} is temporarily unavailable.`);
+  error.code = 'SOFIA_DEGRADED_RUNTIME';
+  error.statusCode = 503;
+  error.details = {
+    mode: profile.mode,
+    reasons: profile.reasons,
+    capabilities: profile.capabilities,
+    action
+  };
+  return error;
+}
+
+
+function createDecisionJournal({decisionType, selectedOption, rationale, alternatives = [], rollbackSignal = '', extra = {}}) {
+  return {
+    decisionType,
+    selectedOption,
+    rationale,
+    alternatives,
+    rollbackSignal: rollbackSignal || null,
+    ...extra
+  };
+}
+
 function buildApprovalRequestMessage(task, approval) {
   return [
     'Sofia approval required',
@@ -262,6 +344,21 @@ async function collectRunTrace(store, runId) {
   ]);
 
   return {artifacts, steps, decisions, usageEntries};
+}
+
+
+function extractRouteExplainability(run, artifacts = []) {
+  const artifact = artifacts.find((entry) => ['plan', 'build', 'verify', 'report'].includes(entry?.kind));
+  return {
+    requestedProfile: run?.modelProfile || null,
+    workerRole: run?.workerRole || null,
+    artifactUri: artifact?.uri || null,
+    adaptiveRouting: artifact?.payload?.adaptiveRouting || null,
+    selectedAgentId: artifact?.payload?.selectedAgentId || null,
+    selectedModelId: artifact?.payload?.selectedModelId || null,
+    actualModel: artifact?.payload?.agentMeta?.model || null,
+    actualProvider: artifact?.payload?.agentMeta?.provider || null
+  };
 }
 
 async function processTaskInlineUntilSettled(store, taskId) {
@@ -343,12 +440,16 @@ export async function probeRuntimeServices() {
     report.mode = 'postgres-redis';
   }
 
+  report.degraded = deriveDegradedRuntimeProfile(report);
   return report;
 }
 
 export async function createTask(input = {}) {
   const resolvedInput = applyProjectTemplate(input);
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy' && process.env.SOFIA_ALLOW_DEGRADED_FALLBACK !== 'true') {
+    throw createDegradedRuntimeError(runtime.degraded, 'createTask');
+  }
   if (runtime.mode !== 'postgres-redis') {
     return createFilesystemTask(resolvedInput);
   }
@@ -440,6 +541,7 @@ export async function listRuns(options = {}) {
       const trace = await collectRunTrace(store, run.id);
       enriched.push({
         ...run,
+        routeExplainability: extractRouteExplainability(run, trace.artifacts),
         artifacts: trace.artifacts,
         steps: trace.steps,
         decisions: trace.decisions,
@@ -562,6 +664,14 @@ export async function getRuntimeMetrics() {
 
 export async function processOneQueuedRun(options = {}) {
   const runtimeServices = await probeRuntimeServices();
+  if (runtimeServices.degraded?.mode && runtimeServices.degraded.mode !== 'healthy') {
+    return {
+      storageMode: runtimeServices.mode,
+      skipped: true,
+      reason: 'degraded_runtime',
+      degraded: runtimeServices.degraded
+    };
+  }
   if (runtimeServices.mode !== 'postgres-redis') {
     return null;
   }
@@ -758,16 +868,24 @@ export async function processOneQueuedRun(options = {}) {
         category: 'routing',
         subject: 'openclaw_agent',
         outcome: execution.ok ? 'executed' : 'attempted',
-        evidence: {
-          sessionId: execution.trace?.sessionId || `sofia-${runId}`,
-          requestedProfile: execution.trace?.requestedProfile || runningRun.modelProfile,
-          selectedAgentId: execution.trace?.selectedAgentId || null,
-          selectedModelId: execution.trace?.selectedModelId || null,
-          actualModel: execution.actualModel || null,
-          actualProvider: execution.actualProvider || null,
-          fallbackDepth: 0,
-          degraded: (execution.trace?.requestedProfile || runningRun.modelProfile) === 'sofia-free-fallback'
-        }
+        evidence: createDecisionJournal({
+          decisionType: 'model_routing',
+          selectedOption: execution.trace?.requestedProfile || runningRun.modelProfile,
+          rationale: execution.trace?.adaptiveRouting?.reasons?.join('; ') || 'static or explicit profile selection',
+          alternatives: ['sofia-fast', 'sofia-hard', 'sofia-free-fallback'].filter((entry) => entry !== (execution.trace?.requestedProfile || runningRun.modelProfile)),
+          rollbackSignal: execution.trace?.guardrails?.ok === false ? 'guardrail_violation' : '',
+          extra: {
+            sessionId: execution.trace?.sessionId || `sofia-${runId}`,
+            requestedProfile: execution.trace?.requestedProfile || runningRun.modelProfile,
+            selectedAgentId: execution.trace?.selectedAgentId || null,
+            selectedModelId: execution.trace?.selectedModelId || null,
+            actualModel: execution.actualModel || null,
+            actualProvider: execution.actualProvider || null,
+            fallbackDepth: 0,
+            degraded: (execution.trace?.requestedProfile || runningRun.modelProfile) === 'sofia-free-fallback',
+            adaptiveRouting: execution.trace?.adaptiveRouting || null
+          }
+        })
       });
 
       if (execution.trace?.guardrails) {
@@ -775,7 +893,14 @@ export async function processOneQueuedRun(options = {}) {
           category: 'policy',
           subject: 'execution_guardrails',
           outcome: execution.trace.guardrails.ok ? 'passed' : 'blocked',
-          evidence: execution.trace.guardrails
+          evidence: createDecisionJournal({
+            decisionType: 'policy_guardrail',
+            selectedOption: execution.trace.guardrails.ok ? 'allow' : 'block',
+            rationale: execution.trace.guardrails.ok ? 'execution stayed within configured provider/token policies' : 'execution violated provider/token policy constraints',
+            alternatives: execution.trace.guardrails.ok ? [] : ['retry_with_lower_cost_path', 'retry_with_safer_profile', 'manual_review'],
+            rollbackSignal: execution.trace.guardrails.ok ? '' : 'policy_violation',
+            extra: execution.trace.guardrails
+          })
         });
       }
 
@@ -961,6 +1086,9 @@ export async function processOneQueuedRun(options = {}) {
 
 export async function startTask(taskId) {
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy' && process.env.SOFIA_ALLOW_DEGRADED_FALLBACK !== 'true') {
+    throw createDegradedRuntimeError(runtime.degraded, 'startTask');
+  }
   if (runtime.mode !== 'postgres-redis') {
     return startFilesystemTask(taskId);
   }
@@ -1014,6 +1142,9 @@ export async function startTask(taskId) {
 
 export async function approveTask(taskId, input = {}) {
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy') {
+    throw createDegradedRuntimeError(runtime.degraded, 'approveTask');
+  }
   if (runtime.mode !== 'postgres-redis') {
     throw new Error('Approval flow requires PostgreSQL and Redis runtime mode');
   }
@@ -1111,6 +1242,9 @@ export async function rejectTask(taskId, input = {}) {
 
 export async function replayDeadLetterRun(runId, input = {}) {
   const runtime = await probeRuntimeServices();
+  if (runtime.degraded?.mode && runtime.degraded.mode !== 'healthy') {
+    throw createDegradedRuntimeError(runtime.degraded, 'replayDeadLetterRun');
+  }
   if (runtime.mode !== 'postgres-redis') {
     throw new Error('Dead-letter replay requires PostgreSQL and Redis runtime mode');
   }
@@ -1176,6 +1310,7 @@ export async function getRun(runId) {
     const trace = await collectRunTrace(store, runId);
     return {
       ...run,
+      routeExplainability: extractRouteExplainability(run, trace.artifacts),
       artifacts: trace.artifacts,
       steps: trace.steps,
       decisions: trace.decisions,
