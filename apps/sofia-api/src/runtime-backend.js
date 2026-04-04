@@ -388,6 +388,27 @@ function summarizeTaskExplainability(task, runs = [], approvals = []) {
   };
 }
 
+
+function summarizeCompletionQualityGate({task, completedRun, taskRuns = [], decisions = [], artifacts = []}) {
+  const artifactKinds = new Set((artifacts || []).map((entry) => entry?.kind).filter(Boolean));
+  const quality = {
+    objectivePresent: Boolean(task?.title),
+    finalRunPresent: Boolean(completedRun?.id),
+    decisionLogPresent: (decisions || []).length > 0,
+    artifactPresent: artifactKinds.size > 0,
+    workflowSummaryPresent: artifactKinds.has('summary') || (task?.workflowTemplate === 'builder_only' && artifactKinds.has('build')),
+    runCount: taskRuns.length,
+    passed: false
+  };
+  quality.passed = Boolean(
+    quality.objectivePresent &&
+    quality.finalRunPresent &&
+    quality.decisionLogPresent &&
+    quality.artifactPresent
+  );
+  return quality;
+}
+
 async function processTaskInlineUntilSettled(store, taskId) {
   let processed = null;
   let iterations = 0;
@@ -572,6 +593,7 @@ export async function listRuns(options = {}) {
         ...run,
         routeExplainability: extractRouteExplainability(run, trace.artifacts),
         decisionJournal: summarizeDecisionJournal(trace.decisions),
+        completionQualityGate: trace.decisions.find((entry) => entry?.subject === 'completion_gate')?.evidence || null,
         artifacts: trace.artifacts,
         steps: trace.steps,
         decisions: trace.decisions,
@@ -1095,6 +1117,27 @@ export async function processOneQueuedRun(options = {}) {
       });
     }
     const trace = await collectRunTrace(store, runId);
+    const taskRunsForQuality = !completed.nextRun && task?.status === 'completed' ? await listTaskRuns(store, runningRun.taskId) : [];
+    const completionQualityGate = summarizeCompletionQualityGate({
+      task,
+      completedRun: completed.run,
+      taskRuns: taskRunsForQuality,
+      decisions: trace.decisions,
+      artifacts: trace.artifacts
+    });
+    await recordDecision(store, runId, {
+      category: 'quality',
+      subject: 'completion_gate',
+      outcome: completionQualityGate.passed ? 'passed' : 'warning',
+      evidence: createDecisionJournal({
+        decisionType: 'completion_quality_gate',
+        selectedOption: completionQualityGate.passed ? 'complete' : 'complete_with_warning',
+        rationale: completionQualityGate.passed ? 'completion met minimum runtime quality checks' : 'completion is missing one or more expected quality signals',
+        alternatives: completionQualityGate.passed ? [] : ['retry_verification', 'write_missing_artifact', 'request_manual_review'],
+        rollbackSignal: completionQualityGate.passed ? '' : 'quality_gate_warning',
+        extra: completionQualityGate
+      })
+    });
 
     return {
       task,
@@ -1107,6 +1150,7 @@ export async function processOneQueuedRun(options = {}) {
       steps: trace.steps,
       decisions: trace.decisions,
       artifacts: trace.artifacts,
+      completionQualityGate,
       storageMode: 'postgres-redis',
       queue: queuedNextRun
         ? {
@@ -1348,6 +1392,7 @@ export async function getRun(runId) {
       ...run,
       routeExplainability: extractRouteExplainability(run, trace.artifacts),
       decisionJournal: summarizeDecisionJournal(trace.decisions),
+      completionQualityGate: trace.decisions.find((entry) => entry?.subject === 'completion_gate')?.evidence || null,
       artifacts: trace.artifacts,
       steps: trace.steps,
       decisions: trace.decisions,
