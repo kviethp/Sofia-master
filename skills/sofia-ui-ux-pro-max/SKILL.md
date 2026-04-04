@@ -1,7 +1,28 @@
 ---
 {
   "name": "sofia-ui-ux-pro-max",
-  "description": "Integrate and operate UI UX Pro Max as Sofia Master's design-intelligence layer for UI/UX planning, design-system generation, page overrides, targeted UX/style/color/typography/chart lookup, and handoff-oriented frontend guidance. Use when Sofia needs to design, review, improve, or standardize web/mobile UI before implementation."
+  "description": "Operate UI UX Pro Max as Sofia Master design-intelligence layer for UI planning, design-system generation, page overrides, and frontend handoff guidance.",
+  "inputs": [
+    "product/use-case brief",
+    "target user",
+    "platform/stack constraints",
+    "page or feature context"
+  ],
+  "constraints": [
+    "Start with design-system generation for meaningful UI work",
+    "Use persisted output instead of giant prompt dumps",
+    "Treat recommendations as heuristics, not absolute truth"
+  ],
+  "requiredTools": [
+    "read",
+    "exec",
+    "write"
+  ],
+  "expectedOutputs": [
+    "Design direction",
+    "Persisted design-system guidance",
+    "Implementation-ready UI handoff constraints"
+  ]
 }
 ---
 
