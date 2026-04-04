@@ -1,7 +1,28 @@
 ---
 {
   "name": "sofia-memory",
-  "description": "Maintain Sofia Master's durable working-memory state for long-running tasks, task continuity, context compaction, resume flows, conversation state storage, task-scoped memory, compaction trigger checks, validation, summary patching, and orchestration cycles. Use when Sofia risks losing active task context or needs to preserve recent turns, rolling summary, unresolved goals, decisions, constraints, next steps, or file/task references across context resets."
+  "description": "Maintain Sofia Master durable working-memory state for long-running tasks, task continuity, context compaction, resume flows, conversation state storage, and structured progress snapshots.",
+  "inputs": [
+    "task title",
+    "structured summary",
+    "recent turns if available",
+    "current progress/decisions/constraints"
+  ],
+  "constraints": [
+    "Keep working memory compact and task-oriented",
+    "Do not treat working memory as long-term memory",
+    "Prefer structured summaries over raw transcript dumps"
+  ],
+  "requiredTools": [
+    "read",
+    "write",
+    "exec"
+  ],
+  "expectedOutputs": [
+    "Updated working-memory state",
+    "Resume-ready compact task context",
+    "Clear next steps/open loops preserved"
+  ]
 }
 ---
 
