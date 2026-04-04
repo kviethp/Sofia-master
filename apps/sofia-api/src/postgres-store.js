@@ -17,6 +17,8 @@ const TASK_RETURNING_COLUMNS = [
   'risk',
   'workflow_template',
   'current_phase',
+  'parent_task_id',
+  'graph',
   'status',
   'created_at',
   'updated_at'
@@ -60,6 +62,8 @@ function rowToTask(row) {
     risk: row.risk,
     workflowTemplate: row.workflow_template || DEFAULT_WORKFLOW_TEMPLATE,
     currentPhase: row.current_phase || 'planner',
+    parentTaskId: row.parent_task_id || null,
+    graph: row.graph || {},
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -476,13 +480,20 @@ export async function createTaskInPostgres(store, input = {}) {
   const templateId = String(input.templateId || 'default').trim().toLowerCase();
   const workflowTemplate = normalizeWorkflowTemplate(input.workflowTemplate);
   const initialPhase = getWorkflowPhases(workflowTemplate)[0] || 'builder';
+  const parentTaskId = input.parentTaskId || null;
+  const graph = {
+    dependencies: Array.isArray(input.dependencies) ? input.dependencies : [],
+    blockers: Array.isArray(input.blockers) ? input.blockers : [],
+    labels: Array.isArray(input.labels) ? input.labels : [],
+    partialCompletion: Number.isFinite(Number(input.partialCompletion)) ? Number(input.partialCompletion) : 0
+  };
   const result = await store.pool.query(
     `
-      INSERT INTO tasks (id, project_id, template_id, title, risk, workflow_template, current_phase, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'created')
+      INSERT INTO tasks (id, project_id, template_id, title, risk, workflow_template, current_phase, parent_task_id, graph, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created')
       RETURNING ${TASK_RETURNING_COLUMNS}
     `,
-    [taskId, projectId, templateId, input.title || 'Scaffold task', input.risk || 'medium', workflowTemplate, initialPhase]
+    [taskId, projectId, templateId, input.title || 'Scaffold task', input.risk || 'medium', workflowTemplate, initialPhase, parentTaskId, graph]
   );
   return rowToTask(result.rows[0]);
 }
@@ -497,6 +508,20 @@ export async function getTaskFromPostgres(store, taskId) {
     [taskId]
   );
   return rowToTask(result.rows[0]);
+}
+
+
+export async function listChildTasksInPostgres(store, taskId) {
+  const result = await store.pool.query(
+    `
+      SELECT ${TASK_RETURNING_COLUMNS}
+      FROM tasks
+      WHERE parent_task_id = $1
+      ORDER BY created_at ASC
+    `,
+    [taskId]
+  );
+  return result.rows.map((row) => rowToTask(row));
 }
 
 export async function listTaskRuns(store, taskId) {

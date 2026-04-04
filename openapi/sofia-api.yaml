@@ -580,6 +580,19 @@ components:
           type: string
         currentPhase:
           type: string
+        parentTaskId:
+          type: string
+          nullable: true
+        graph:
+          type: object
+          additionalProperties: true
+        graphSummary:
+          type: object
+          additionalProperties: true
+        childTasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
         status:
           type: string
         createdAt:

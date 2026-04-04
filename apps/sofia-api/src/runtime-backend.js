@@ -18,6 +18,7 @@ import {
   listRunsInPostgres,
   listTasksInPostgres,
   listTaskRuns,
+  listChildTasksInPostgres,
   listTaskApprovals,
   listRunArtifacts,
   listRunDecisions,
@@ -406,6 +407,20 @@ function summarizeTaskExplainability(task, runs = [], approvals = []) {
 }
 
 
+function summarizeTaskGraph(task, childTasks = []) {
+  const graph = task?.graph || {};
+  return {
+    parentTaskId: task?.parentTaskId || null,
+    childTaskCount: childTasks.length,
+    childTaskIds: childTasks.map((entry) => entry.id),
+    dependencies: Array.isArray(graph.dependencies) ? graph.dependencies : [],
+    blockers: Array.isArray(graph.blockers) ? graph.blockers : [],
+    labels: Array.isArray(graph.labels) ? graph.labels : [],
+    partialCompletion: Number.isFinite(Number(graph.partialCompletion)) ? Number(graph.partialCompletion) : 0
+  };
+}
+
+
 function summarizeCompletionQualityGate({task, completedRun, taskRuns = [], decisions = [], artifacts = []}) {
   const artifactKinds = new Set((artifacts || []).map((entry) => entry?.kind).filter(Boolean));
   const quality = {
@@ -583,15 +598,18 @@ export async function listTasks(options = {}) {
     const tasks = await listTasksInPostgres(store, options);
     const enriched = [];
     for (const task of tasks) {
-      const [runs, approvals] = await Promise.all([
+      const [runs, approvals, childTasks] = await Promise.all([
         listTaskRuns(store, task.id),
-        listTaskApprovals(store, task.id)
+        listTaskApprovals(store, task.id),
+        listChildTasksInPostgres(store, task.id)
       ]);
       enriched.push({
         ...task,
         explainability: summarizeTaskExplainability(task, runs, approvals),
+        graphSummary: summarizeTaskGraph(task, childTasks),
         runs,
-        approvals
+        approvals,
+        childTasks
       });
     }
     return enriched;

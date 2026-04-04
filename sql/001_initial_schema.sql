@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   risk TEXT NOT NULL,
   workflow_template TEXT NOT NULL DEFAULT 'planner_builder_verifier',
   current_phase TEXT NOT NULL DEFAULT 'planner',
+  parent_task_id TEXT REFERENCES tasks(id),
+  graph JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -106,6 +108,10 @@ ALTER TABLE runs ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS template_id TEXT NOT NULL DEFAULT 'default';
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workflow_template TEXT NOT NULL DEFAULT 'planner_builder_verifier';
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS current_phase TEXT NOT NULL DEFAULT 'planner';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id TEXT REFERENCES tasks(id);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS graph JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id TEXT REFERENCES tasks(id);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS graph JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
