@@ -409,6 +409,20 @@ function summarizeCompletionQualityGate({task, completedRun, taskRuns = [], deci
   return quality;
 }
 
+
+function extractReplayState(decisions = []) {
+  const replay = decisions.find((entry) => entry?.subject === 'dead_letter_replay');
+  if (!replay) return null;
+  return {
+    outcome: replay.outcome,
+    replayedBy: replay.evidence?.replayedBy || null,
+    replayReason: replay.evidence?.replayReason || null,
+    selectedOption: replay.evidence?.selectedOption || null,
+    replayState: replay.evidence?.replayState || null,
+    createdAt: replay.createdAt
+  };
+}
+
 async function processTaskInlineUntilSettled(store, taskId) {
   let processed = null;
   let iterations = 0;
@@ -593,6 +607,7 @@ export async function listRuns(options = {}) {
         ...run,
         routeExplainability: extractRouteExplainability(run, trace.artifacts),
         decisionJournal: summarizeDecisionJournal(trace.decisions),
+        replayState: extractReplayState(trace.decisions),
         completionQualityGate: trace.decisions.find((entry) => entry?.subject === 'completion_gate')?.evidence || null,
         artifacts: trace.artifacts,
         steps: trace.steps,
@@ -1357,6 +1372,7 @@ export async function replayDeadLetterRun(runId, input = {}) {
     const trace = await collectRunTrace(store, replayed.run.id);
     return {
       ...replayed,
+      replayState: extractReplayState(trace.decisions),
       task: {
         ...replayed.task,
         runs,
@@ -1392,6 +1408,7 @@ export async function getRun(runId) {
       ...run,
       routeExplainability: extractRouteExplainability(run, trace.artifacts),
       decisionJournal: summarizeDecisionJournal(trace.decisions),
+      replayState: extractReplayState(trace.decisions),
       completionQualityGate: trace.decisions.find((entry) => entry?.subject === 'completion_gate')?.evidence || null,
       artifacts: trace.artifacts,
       steps: trace.steps,

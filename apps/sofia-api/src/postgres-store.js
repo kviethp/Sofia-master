@@ -1441,10 +1441,12 @@ export async function replayDeadLetterRunInPostgres(store, runId, options = {}) 
     );
     const task = rowToTask(taskResult.rows[0]);
 
+    const replayModelProfile = options.modelProfileOverride || run.modelProfile;
     const updatedRunResult = await client.query(
       `
         UPDATE runs
         SET status = 'queued',
+            model_profile = $2,
             lease_owner = NULL,
             lease_expires_at = NULL,
             next_retry_at = NULL,
@@ -1454,7 +1456,7 @@ export async function replayDeadLetterRunInPostgres(store, runId, options = {}) 
         WHERE id = $1
         RETURNING ${RUN_RETURNING_COLUMNS}
       `,
-      [runId]
+      [runId, replayModelProfile]
     );
     const updatedRun = rowToRun(updatedRunResult.rows[0]);
 
@@ -1474,13 +1476,26 @@ export async function replayDeadLetterRunInPostgres(store, runId, options = {}) 
     await insertRunStepQuery(client, runId, 'dead_letter_replayed', 'completed', {
       previousStatus: run.status,
       workerRole: run.workerRole,
-      replayedBy: options.replayedBy || 'operator'
+      replayedBy: options.replayedBy || 'operator',
+      replayReason: options.replayReason || options.note || null,
+      previousModelProfile: run.modelProfile,
+      replayModelProfile
     });
 
     await insertDecisionQuery(client, runId, 'durability', 'dead_letter_replay', 'queued', {
       replayedBy: options.replayedBy || 'operator',
+      replayReason: options.replayReason || options.note || null,
       taskStatus: task.status,
-      currentPhase: updatedTask.currentPhase
+      currentPhase: updatedTask.currentPhase,
+      previousModelProfile: run.modelProfile,
+      selectedOption: replayModelProfile,
+      replayState: {
+        source: 'dead_letter',
+        replayReason: options.replayReason || options.note || null,
+        previousModelProfile: run.modelProfile,
+        replayModelProfile,
+        memoryAware: true
+      }
     });
 
     return {
