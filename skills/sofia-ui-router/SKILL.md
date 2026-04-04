@@ -1,7 +1,12 @@
 ---
 {
-  "name": "sofia-ui-router",
+  "schemaVersion": "1.0.0",
+  "id": "sofia-ui-router",
+  "version": "1.0.0",
+  "owner": "sofia-master",
   "description": "Route UI/UX-related requests in Sofia Master to the Sofia UI UX Pro Max workflow.",
+  "intent": "Use when a Sofia task is primarily about interface design, interaction quality, UX direction, or frontend visual strategy and should be routed into the UI design workflow.",
+  "trustLevel": "internal-trusted",
   "inputs": [
     "user request touching UI/UX",
     "page/app/screen context if available",
@@ -20,6 +25,11 @@
     "Correct UI skill routing decision",
     "Normalized UI brief",
     "Implementation-ready handoff structure"
+  ],
+  "qualityGates": [
+    "Routes UI-heavy requests into the design workflow before code generation",
+    "Produces a normalized brief and handoff-ready structure",
+    "Avoids treating pure backend work as UI/UX work"
   ]
 }
 ---

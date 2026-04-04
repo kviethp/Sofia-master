@@ -1,7 +1,12 @@
 ---
 {
-  "name": "sofia-ui-ux-pro-max",
+  "schemaVersion": "1.0.0",
+  "id": "sofia-ui-ux-pro-max",
+  "version": "1.0.0",
+  "owner": "sofia-master",
   "description": "Operate UI UX Pro Max as Sofia Master design-intelligence layer for UI planning, design-system generation, page overrides, and frontend handoff guidance.",
+  "intent": "Use when Sofia needs design direction, reusable design-system guidance, page-level UI decisions, or implementation-ready frontend handoff constraints.",
+  "trustLevel": "internal-trusted",
   "inputs": [
     "product/use-case brief",
     "target user",
@@ -22,6 +27,11 @@
     "Design direction",
     "Persisted design-system guidance",
     "Implementation-ready UI handoff constraints"
+  ],
+  "qualityGates": [
+    "Starts with design direction before frontend code generation when the UI is not yet defined",
+    "Produces reusable design-system guidance that can survive context resets",
+    "Returns implementation-ready handoff constraints rather than vague aesthetic advice"
   ]
 }
 ---
