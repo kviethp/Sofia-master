@@ -859,6 +859,25 @@ export async function rejectTaskInPostgres(store, taskId, input = {}) {
   });
 }
 
+
+async function resolveTaskDependencyState(store, task) {
+  const graph = task?.graph || {};
+  const dependencies = Array.isArray(graph.dependencies) ? graph.dependencies : [];
+  const blockers = Array.isArray(graph.blockers) ? graph.blockers : [];
+  const pendingDependencies = [];
+  for (const dependencyId of dependencies) {
+    const dependency = await getTaskFromPostgres(store, dependencyId);
+    if (!dependency || dependency.status !== 'completed') {
+      pendingDependencies.push({id: dependencyId, status: dependency?.status || 'missing'});
+    }
+  }
+  return {
+    blockers,
+    pendingDependencies,
+    canQueue: blockers.length === 0 && pendingDependencies.length === 0
+  }
+}
+
 export async function queueTaskRunInPostgres(store, taskId, options = {}) {
   const task = await getTaskFromPostgres(store, taskId);
   if (!task) {
@@ -869,6 +888,14 @@ export async function queueTaskRunInPostgres(store, taskId, options = {}) {
   }
   if (task.status === 'completed' || task.status === 'failed') {
     throw new Error(`Task ${taskId} is already ${task.status}`);
+  }
+
+  const dependencyState = await resolveTaskDependencyState(store, task);
+  if (dependencyState.blockers.length > 0 || dependencyState.pendingDependencies.length > 0) {
+    const error = new Error(`Task ${taskId} is blocked by dependencies or blockers`);
+    error.code = 'SOFIA_TASK_BLOCKED';
+    error.details = dependencyState;
+    throw error;
   }
 
   const workerRole = String(options.workerRole || task.currentPhase || '').trim().toLowerCase();
