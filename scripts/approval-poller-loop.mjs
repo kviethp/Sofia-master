@@ -9,7 +9,23 @@ console.log(`[sofia] poll interval: ${loopDelayMs}ms`);
 
 while (iterations < maxIterations) {
   iterations += 1;
-  await import(`../apps/sofia-api/scripts/process-telegram-approvals.js?iteration=${iterations}&t=${Date.now()}`);
+
+  try {
+    await import(`../apps/sofia-api/scripts/process-telegram-approvals.js?iteration=${iterations}&t=${Date.now()}`);
+  } catch (error) {
+    console.log(
+      JSON.stringify(
+        {
+          status: 'poll_error',
+          iteration: iterations,
+          message: error?.message ?? String(error)
+        },
+        null,
+        2
+      )
+    );
+  }
+
   if (iterations < maxIterations) {
     await new Promise((resolve) => setTimeout(resolve, loopDelayMs));
   }
