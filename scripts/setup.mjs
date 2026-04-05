@@ -8,8 +8,73 @@ import {stdin as input, stdout as output} from 'node:process';
 const rootDir = process.cwd();
 const envExamplePath = path.join(rootDir, '.env.example');
 const envPath = path.join(rootDir, '.env');
+const setupReportPath = path.join(rootDir, '.sofia', 'reports', 'setup-report.json');
 const composeArgs = ['compose', '-f', 'infra/compose/docker-compose.yml'];
 const systemdUnitName = 'sofia-compose.service';
+
+async function writeSetupReport(report) {
+  await fs.mkdir(path.dirname(setupReportPath), {recursive: true});
+  await fs.writeFile(setupReportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+}
+
+function buildSetupReport(config, toolingReport, extras = {}) {
+  return {
+    generatedAt: new Date().toISOString(),
+    mode: config.mode,
+    platform: config.platform,
+    dryRun: config.dryRun,
+    startServices: config.startServices,
+    launchMode: config.launchMode,
+    startupMode: config.startupMode,
+    enableWorkerLoop: config.enableWorkerLoop,
+    enableApprovalPoller: config.enableApprovalPoller,
+    runChecks: config.runChecks,
+    executionMode: config.executionMode,
+    ports: {
+      api: config.apiPort,
+      web: config.webPort,
+      admin: config.adminPort
+    },
+    tooling: toolingReport,
+    ...extras
+  };
+}
+
+function plannedSteps(config) {
+  const steps = [
+    'write .env values',
+    'run node scripts/bootstrap.mjs',
+    'install dependencies with pnpm/corepack',
+    'compile skills'
+  ];
+  if (config.startServices) steps.push('start core compose services');
+  steps.push('run migrate');
+  if (config.runChecks) steps.push('run doctor + smoke');
+  if (config.startupMode === 'auto-start') steps.push('enable startup persistence if supported');
+  return steps;
+}
+
+function completedSteps(config) {
+  const steps = [
+    'write .env values',
+    'run node scripts/bootstrap.mjs',
+    'install dependencies with pnpm/corepack',
+    'compile skills'
+  ];
+  if (config.startServices) steps.push('start core compose services');
+  steps.push('run migrate');
+  if (config.runChecks) steps.push('run doctor + smoke');
+  if (config.startupMode === 'auto-start') steps.push('process startup persistence');
+  return steps;
+}
+
+function normalizeReportPath() {
+  return path.relative(rootDir, setupReportPath) || setupReportPath;
+}
+
+function printReportLocation() {
+  console.log(`[sofia] setup report written to ${normalizeReportPath()}`);
+}
 
 function commandAvailable(command, args = ['--version']) {
   const result = spawnSync(command, args, {stdio: 'ignore'});
@@ -272,6 +337,7 @@ function printGuide(config) {
 }
 
 function printDryRunPlan(config) {
+  const steps = plannedSteps(config);
   console.log('\n[sofia] dry-run only: no files were changed and no commands were executed.');
   console.log('[sofia] planned configuration:');
   console.log(`  - mode: ${config.mode}`);
@@ -285,19 +351,8 @@ function printDryRunPlan(config) {
   console.log(`  - run checks: ${config.runChecks}`);
   console.log(`  - api/web/admin ports: ${config.apiPort}/${config.webPort}/${config.adminPort}`);
   console.log('[sofia] planned steps:');
-  console.log('  1. write .env values');
-  console.log('  2. run node scripts/bootstrap.mjs');
-  console.log('  3. install dependencies with pnpm/corepack');
-  console.log('  4. compile skills');
-  if (config.startServices) {
-    console.log('  5. start core compose services');
-  }
-  console.log(`  ${config.startServices ? '6' : '5'}. run migrate`);
-  if (config.runChecks) {
-    console.log(`  ${config.startServices ? '7' : '6'}. run doctor + smoke`);
-  }
-  if (config.startupMode === 'auto-start') {
-    console.log('  - enable startup persistence if supported on this host');
+  for (const [index, step] of steps.entries()) {
+    console.log(`  ${index + 1}. ${step}`);
   }
 }
 
@@ -310,7 +365,14 @@ async function main() {
   assertTooling(toolingReport, config);
 
   if (config.dryRun) {
+    const report = buildSetupReport(config, toolingReport, {
+      status: 'dry-run',
+      reportPath: normalizeReportPath(),
+      plannedSteps: plannedSteps(config)
+    });
+    await writeSetupReport(report);
     printDryRunPlan(config);
+    printReportLocation();
     return;
   }
 
@@ -371,6 +433,15 @@ async function main() {
       printAutostartGuide(config.platform);
     }
   }
+
+  const report = buildSetupReport(config, toolingReport, {
+    status: 'applied',
+    reportPath: normalizeReportPath(),
+    completedSteps: completedSteps(config),
+    autostart: autostartResult
+  });
+  await writeSetupReport(report);
+  printReportLocation();
 
   if (!config.startServices || config.launchMode === 'guide-only') {
     printGuide(config);
