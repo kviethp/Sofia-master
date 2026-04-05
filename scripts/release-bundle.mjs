@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -8,6 +9,46 @@ const bundleRoot = path.join(rootDir, '.sofia', 'releases');
 const latestManifestPath = path.join(bundleRoot, 'latest.json');
 const label = process.env.SOFIA_RELEASE_LABEL || new Date().toISOString().replace(/[:]/g, '-');
 const targetDir = path.join(bundleRoot, label);
+
+function commandAvailable(command, args = ['--version']) {
+  const result = spawnSync(command, args, {stdio: 'ignore'});
+  return result.status === 0;
+}
+
+function installRuntimeDependencies(bundleDir) {
+  const pnpmAvailable = commandAvailable('pnpm');
+  const corepackAvailable = commandAvailable('corepack');
+
+  const command = pnpmAvailable
+    ? ['pnpm', ['install', '--prod', '--frozen-lockfile']]
+    : corepackAvailable
+      ? ['corepack', ['pnpm', 'install', '--prod', '--frozen-lockfile']]
+      : [null, null];
+
+  if (!command[0]) {
+    throw new Error('runtime_deps_install_unavailable: pnpm/corepack not found');
+  }
+
+  const result = spawnSync(command[0], command[1], {
+    cwd: bundleDir,
+    encoding: 'utf8',
+    env: {
+      ...process.env
+    }
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`runtime_deps_install_failed:${(result.stderr || result.stdout || '').trim()}`);
+  }
+
+  return {
+    installer: command[0],
+    args: command[1],
+    stdout: (result.stdout || '').trim(),
+    stderr: (result.stderr || '').trim()
+  };
+}
+
 const requiredPaths = [
   'README.md',
   'CONTRIBUTING.md',
@@ -61,12 +102,16 @@ async function main() {
     await copyPath(relativePath);
   }
 
+  const runtimeDependencies = installRuntimeDependencies(targetDir);
+
   const manifest = {
     label,
     version: packageJson.version,
     packageManager: packageJson.packageManager || null,
     createdAt: new Date().toISOString(),
     rootDir,
+    runtimeDependenciesInstalled: true,
+    runtimeDependencies,
     contents: []
   };
 
