@@ -43,6 +43,7 @@ English is the canonical source for technical detail. Vietnamese companion pages
 - [32-staging-prod-layout.md](./32-staging-prod-layout.md)
 - [33-github-publish-checklist.md](./33-github-publish-checklist.md)
 - [34-role-skill-matrix.md](./34-role-skill-matrix.md)
+- [35-autonomy-guardrails.md](./35-autonomy-guardrails.md)
 
 ## Public docs
 
