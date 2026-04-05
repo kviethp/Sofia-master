@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "activeMilestone": "<milestone-slug>",
+  "branch": "<branch-name>",
+  "status": "planned|in-progress|blocked|validating|merged|deployed",
+  "lastMeaningfulProgressAt": "<ISO-8601 timestamp>",
+  "nextAction": "<next concrete action>",
+  "blocked": false,
+  "blockerReason": "",
+  "requiredArtifactKinds": [
+    "commit",
+    "validation-result",
+    "acceptance-result",
+    "blocker-note",
+    "deployment-note"
+  ],
+  "latestArtifactKind": "commit",
+  "latestArtifactRef": "<commit sha / note path / deployment id>",
+  "updatedAt": "<ISO-8601 timestamp>"
+}
