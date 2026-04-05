@@ -16,6 +16,37 @@ function commandAvailable(command, args = ['--version']) {
   return result.status === 0;
 }
 
+function collectToolingReport(platform) {
+  return {
+    platform,
+    node: commandAvailable('node'),
+    pnpm: commandAvailable('pnpm'),
+    corepack: commandAvailable('corepack'),
+    docker: commandAvailable('docker'),
+    systemctl: platform === 'linux' ? commandAvailable('systemctl') : false
+  };
+}
+
+function printToolingReport(report) {
+  console.log('[sofia] tooling report:');
+  for (const [key, value] of Object.entries(report)) {
+    console.log(`  - ${key}: ${value}`);
+  }
+}
+
+function assertTooling(report, config) {
+  const missing = [];
+  if (!report.node) missing.push('node');
+  if (!report.pnpm && !report.corepack) missing.push('pnpm or corepack');
+  if (config.startServices && !report.docker) missing.push('docker');
+  if (config.startupMode === 'auto-start' && config.platform === 'linux' && !report.systemctl) {
+    missing.push('systemctl');
+  }
+  if (missing.length > 0) {
+    throw new Error(`missing required tooling: ${missing.join(', ')}`);
+  }
+}
+
 function parseArgs(argv) {
   const args = new Map();
   for (let index = 2; index < argv.length; index += 1) {
@@ -192,12 +223,17 @@ async function collectConfig() {
       ? await ask('Startup persistence', args.get('--startup-mode') || 'run-now', rl, ['run-now', 'auto-start', 'manual'])
       : args.get('--startup-mode') || 'run-now';
 
+    const dryRun = interactive
+      ? toBool(await ask('Dry run only?', args.get('--dry-run') || 'no', rl, ['yes', 'no']), false)
+      : toBool(args.get('--dry-run'), false);
+
     const config = {
       mode,
       platform,
-      startServices,
+      startServices: startupMode === 'manual' ? false : startServices,
       launchMode,
       startupMode,
+      dryRun,
       enableWorkerLoop,
       enableApprovalPoller,
       runChecks,
@@ -223,7 +259,8 @@ async function collectConfig() {
 }
 
 function printGuide(config) {
-  console.log('\n[sofia] setup complete. Start services manually with:');
+  console.log(`\n[sofia] setup complete for platform: ${config.platform}`);
+  console.log('[sofia] Start services manually with:');
   console.log(`  docker ${composeArgs.join(' ')} up -d postgres redis api web admin`);
   if (config.enableWorkerLoop) {
     console.log('  node scripts/worker-loop.mjs');
@@ -283,8 +320,7 @@ async function main() {
 
   if (config.startupMode === 'auto-start') {
     if (autostartResult?.ok) {
-      console.log(`
-[sofia] auto-start enabled via ${autostartResult.mode}: ${autostartResult.unit || autostartResult.reason}`);
+      console.log(`\n[sofia] auto-start enabled via ${autostartResult.mode}: ${autostartResult.unit || autostartResult.reason}`);
     } else {
       printAutostartGuide(config.platform);
     }

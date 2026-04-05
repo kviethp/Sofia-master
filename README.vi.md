@@ -67,6 +67,7 @@ Flow này hỗ trợ:
 - khởi động core services ngay trong cùng window
 - hoặc chỉ setup rồi in ra đúng lệnh để tự khởi động từng service riêng
 - startup persistence: chạy ngay, tự khởi động khi boot máy, hoặc manual mode
+- preflight tooling check + dry-run trước khi apply full setup flow
 
 #### Cách thủ công
 

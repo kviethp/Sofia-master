@@ -69,6 +69,7 @@ It supports:
 - start everything in the same window
 - or setup-only mode that prints the exact service start commands
 - startup persistence options: run now, auto-start on boot, or manual mode
+- tooling preflight + dry-run support before applying the full setup flow
 
 #### Manual path
 
