@@ -32,6 +32,18 @@ async function pathExists(targetPath) {
   return fs.access(targetPath).then(() => true).catch(() => false);
 }
 
+
+function runNodeInline(cwd, source, extraEnv = {}) {
+  return spawnSync('node', ['--input-type=module', '--eval', source], {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ...extraEnv
+    }
+  });
+}
+
 function runNodeScript(cwd, scriptPath, extraEnv = {}) {
   return spawnSync('node', [scriptPath], {
     cwd,
@@ -83,6 +95,7 @@ async function main() {
   const skillsCompileResult = runNodeScript(acceptanceDir, 'scripts/skills-compile.mjs');
   const agentSystemConformanceResult = runNodeScript(acceptanceDir, 'scripts/agent-system-conformance.mjs');
   const readinessResult = runNodeScript(acceptanceDir, 'scripts/release-readiness.mjs');
+  const runtimeDepsResult = runNodeInline(acceptanceDir, "await import('pg'); await import('redis'); console.log('runtime-deps-ok');");
 
   const envCreated = await pathExists(path.join(acceptanceDir, '.env'));
 
@@ -93,7 +106,8 @@ async function main() {
       skillsValidateResult.status === 0 &&
       skillsCompileResult.status === 0 &&
       agentSystemConformanceResult.status === 0 &&
-      readinessResult.status === 0
+      readinessResult.status === 0 &&
+      runtimeDepsResult.status === 0
         ? 'pass'
         : 'fail',
     bundleDir,
@@ -128,6 +142,11 @@ async function main() {
       status: readinessResult.status ?? 1,
       stdout: readinessResult.stdout.trim(),
       stderr: readinessResult.stderr.trim()
+    },
+    runtimeDependencies: {
+      status: runtimeDepsResult.status ?? 1,
+      stdout: runtimeDepsResult.stdout.trim(),
+      stderr: runtimeDepsResult.stderr.trim()
     }
   };
 
