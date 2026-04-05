@@ -66,6 +66,7 @@ Flow này hỗ trợ:
 - advanced mode để chỉnh port / execution mode / token
 - khởi động core services ngay trong cùng window
 - hoặc chỉ setup rồi in ra đúng lệnh để tự khởi động từng service riêng
+- startup persistence: chạy ngay, tự khởi động khi boot máy, hoặc manual mode
 
 #### Cách thủ công
 

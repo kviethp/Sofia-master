@@ -68,6 +68,7 @@ It supports:
 - advanced mode for custom ports / execution mode / token setup
 - start everything in the same window
 - or setup-only mode that prints the exact service start commands
+- startup persistence options: run now, auto-start on boot, or manual mode
 
 #### Manual path
 

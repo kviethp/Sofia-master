@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
+import os from 'node:os';
 import readline from 'node:readline/promises';
 import {stdin as input, stdout as output} from 'node:process';
 
@@ -8,6 +9,7 @@ const rootDir = process.cwd();
 const envExamplePath = path.join(rootDir, '.env.example');
 const envPath = path.join(rootDir, '.env');
 const composeArgs = ['compose', '-f', 'infra/compose/docker-compose.yml'];
+const systemdUnitName = 'sofia-compose.service';
 
 function commandAvailable(command, args = ['--version']) {
   const result = spawnSync(command, args, {stdio: 'ignore'});
@@ -107,6 +109,59 @@ function toBool(value, fallback = false) {
   return ['1', 'true', 'yes', 'y', 'on'].includes(normalized);
 }
 
+
+function detectPlatform() {
+  if (process.platform === 'win32') return 'windows';
+  if (process.platform === 'linux') return 'linux';
+  return process.platform;
+}
+
+async function ensureLinuxAutostartService() {
+  const systemctlAvailable = commandAvailable('systemctl');
+  if (!systemctlAvailable) {
+    return {ok: false, mode: 'guide-only', reason: 'systemctl unavailable'};
+  }
+
+  const unitPath = `/etc/systemd/system/${systemdUnitName}`;
+  const content = `[Unit]
+Description=Sofia Master compose stack
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=${rootDir}
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker ${composeArgs.join(' ')} up -d postgres redis api web admin
+ExecStop=/usr/bin/docker ${composeArgs.join(' ')} down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+`;
+
+  await fs.writeFile(unitPath, content, 'utf8');
+  run('systemctl', ['daemon-reload']);
+  run('systemctl', ['enable', systemdUnitName]);
+  return {ok: true, mode: 'systemd', unit: systemdUnitName, unitPath};
+}
+
+function printAutostartGuide(platform) {
+  console.log('\n[sofia] auto-start on boot was not applied automatically.');
+  if (platform === 'windows') {
+    console.log('[sofia] recommended Windows fallback:');
+    console.log('  - enable Docker Desktop auto-start');
+    console.log('  - enable container restart policy / compose restart');
+    console.log('  - or create a Task Scheduler entry that runs:');
+    console.log(`    docker ${composeArgs.join(' ')} up -d postgres redis api web admin`);
+    return;
+  }
+  console.log('[sofia] recommended Linux fallback:');
+  console.log(`  sudo tee /etc/systemd/system/${systemdUnitName} >/dev/null < <(cat <<"EOF" ... EOF)`);
+  console.log(`  sudo systemctl enable ${systemdUnitName}`);
+}
+
 async function collectConfig() {
   const args = parseArgs(process.argv);
   const interactive = !args.has('--non-interactive');
@@ -132,11 +187,17 @@ async function collectConfig() {
     const runChecks = interactive
       ? toBool(await ask('Run doctor + smoke checks?', args.get('--run-checks') || 'yes', rl, ['yes', 'no']), true)
       : toBool(args.get('--run-checks'), true);
+    const platform = detectPlatform();
+    const startupMode = interactive
+      ? await ask('Startup persistence', args.get('--startup-mode') || 'run-now', rl, ['run-now', 'auto-start', 'manual'])
+      : args.get('--startup-mode') || 'run-now';
 
     const config = {
       mode,
+      platform,
       startServices,
       launchMode,
+      startupMode,
       enableWorkerLoop,
       enableApprovalPoller,
       runChecks,
@@ -218,6 +279,15 @@ async function main() {
     run('node', ['apps/sofia-api/scripts/doctor.js']);
     console.log('\n[sofia] smoke');
     run('node', ['apps/sofia-api/scripts/smoke.js']);
+  }
+
+  if (config.startupMode === 'auto-start') {
+    if (autostartResult?.ok) {
+      console.log(`
+[sofia] auto-start enabled via ${autostartResult.mode}: ${autostartResult.unit || autostartResult.reason}`);
+    } else {
+      printAutostartGuide(config.platform);
+    }
   }
 
   if (!config.startServices || config.launchMode === 'guide-only') {

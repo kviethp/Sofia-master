@@ -29,6 +29,7 @@ The setup flow supports:
 - advanced mode for custom ports, execution mode, and token setup
 - `same-window` launch mode to bring up the core stack and stream logs in the current terminal
 - `guide-only` mode to stop after setup and print the exact commands needed to start services manually
+- startup persistence modes: `run-now`, `auto-start`, or `manual`
 
 If you choose not to start everything in one window, the script prints the service start commands for:
 - core compose services
