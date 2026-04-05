@@ -140,7 +140,6 @@ function toBool(value, fallback = false) {
   return ['1', 'true', 'yes', 'y', 'on'].includes(normalized);
 }
 
-
 function detectPlatform() {
   if (process.platform === 'win32') return 'windows';
   if (process.platform === 'linux') return 'linux';
@@ -272,16 +271,58 @@ function printGuide(config) {
   console.log('  node apps/sofia-api/scripts/smoke.js');
 }
 
+function printDryRunPlan(config) {
+  console.log('\n[sofia] dry-run only: no files were changed and no commands were executed.');
+  console.log('[sofia] planned configuration:');
+  console.log(`  - mode: ${config.mode}`);
+  console.log(`  - platform: ${config.platform}`);
+  console.log(`  - execution mode: ${config.executionMode}`);
+  console.log(`  - start services: ${config.startServices}`);
+  console.log(`  - launch mode: ${config.launchMode}`);
+  console.log(`  - startup persistence: ${config.startupMode}`);
+  console.log(`  - worker loop: ${config.enableWorkerLoop}`);
+  console.log(`  - approval poller: ${config.enableApprovalPoller}`);
+  console.log(`  - run checks: ${config.runChecks}`);
+  console.log(`  - api/web/admin ports: ${config.apiPort}/${config.webPort}/${config.adminPort}`);
+  console.log('[sofia] planned steps:');
+  console.log('  1. write .env values');
+  console.log('  2. run node scripts/bootstrap.mjs');
+  console.log('  3. install dependencies with pnpm/corepack');
+  console.log('  4. compile skills');
+  if (config.startServices) {
+    console.log('  5. start core compose services');
+  }
+  console.log(`  ${config.startServices ? '6' : '5'}. run migrate`);
+  if (config.runChecks) {
+    console.log(`  ${config.startServices ? '7' : '6'}. run doctor + smoke`);
+  }
+  if (config.startupMode === 'auto-start') {
+    console.log('  - enable startup persistence if supported on this host');
+  }
+}
+
 async function main() {
+  const config = await collectConfig();
+  const toolingReport = collectToolingReport(config.platform);
+
+  console.log('\n[sofia] preflight');
+  printToolingReport(toolingReport);
+  assertTooling(toolingReport, config);
+
+  if (config.dryRun) {
+    printDryRunPlan(config);
+    return;
+  }
+
   const envRaw = await ensureEnvFile();
   const envEntries = parseEnv(envRaw);
-  const config = await collectConfig();
 
   setEnvValue(envEntries, 'SOFIA_API_PORT', config.apiPort);
   setEnvValue(envEntries, 'SOFIA_WEB_PORT', config.webPort);
   setEnvValue(envEntries, 'SOFIA_ADMIN_PORT', config.adminPort);
   setEnvValue(envEntries, 'SOFIA_EXECUTION_MODE', config.executionMode);
   setEnvValue(envEntries, 'SOFIA_WORKER_LOOP', config.enableWorkerLoop ? 'true' : 'false');
+  setEnvValue(envEntries, 'SOFIA_APPROVAL_POLLER', config.enableApprovalPoller ? 'true' : 'false');
   if (config.controlToken) {
     setEnvValue(envEntries, 'SOFIA_CONTROL_TOKEN', config.controlToken);
   }
@@ -318,7 +359,12 @@ async function main() {
     run('node', ['apps/sofia-api/scripts/smoke.js']);
   }
 
+  let autostartResult = null;
   if (config.startupMode === 'auto-start') {
+    autostartResult = config.platform === 'linux'
+      ? await ensureLinuxAutostartService()
+      : {ok: false, mode: 'guide-only', reason: `unsupported platform: ${config.platform}`};
+
     if (autostartResult?.ok) {
       console.log(`\n[sofia] auto-start enabled via ${autostartResult.mode}: ${autostartResult.unit || autostartResult.reason}`);
     } else {
