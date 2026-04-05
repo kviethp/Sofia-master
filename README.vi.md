@@ -53,6 +53,22 @@ Nếu bootstrap local bằng Compose, cần thêm Docker.
 
 ### Cài nhanh
 
+#### Cách dễ nhất
+
+Chạy flow setup hợp nhất:
+
+```bash
+node scripts/setup.mjs
+```
+
+Flow này hỗ trợ:
+- quick mode cho người mới
+- advanced mode để chỉnh port / execution mode / token
+- khởi động core services ngay trong cùng window
+- hoặc chỉ setup rồi in ra đúng lệnh để tự khởi động từng service riêng
+
+#### Cách thủ công
+
 1. Copy `.env.example` thành `.env`
 2. Chạy `node scripts/bootstrap.mjs`
 3. Chạy `pnpm install`

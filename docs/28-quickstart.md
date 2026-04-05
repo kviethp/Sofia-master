@@ -16,6 +16,27 @@ If `pnpm` is missing but `corepack` is available, enable it first:
 corepack enable pnpm
 ```
 
+## One-click setup
+
+Recommended for new users:
+
+```bash
+node scripts/setup.mjs
+```
+
+The setup flow supports:
+- quick mode for minimal questions
+- advanced mode for custom ports, execution mode, and token setup
+- `same-window` launch mode to bring up the core stack and stream logs in the current terminal
+- `guide-only` mode to stop after setup and print the exact commands needed to start services manually
+
+If you choose not to start everything in one window, the script prints the service start commands for:
+- core compose services
+- optional worker loop
+- optional approval poller
+- doctor and smoke checks
+
+
 ## Bootstrap
 
 1. copy `.env.example` to `.env`

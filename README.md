@@ -55,6 +55,22 @@ For local Compose bootstrap, also install Docker.
 
 ### Quick install
 
+#### Easiest path
+
+Run the unified setup flow:
+
+```bash
+node scripts/setup.mjs
+```
+
+It supports:
+- quick mode for new users
+- advanced mode for custom ports / execution mode / token setup
+- start everything in the same window
+- or setup-only mode that prints the exact service start commands
+
+#### Manual path
+
 1. Copy `.env.example` to `.env`
 2. Run `node scripts/bootstrap.mjs`
 3. Run `pnpm install`
