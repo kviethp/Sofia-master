@@ -30,6 +30,7 @@ function buildSetupReport(config, toolingReport, extras = {}) {
     enableApprovalPoller: config.enableApprovalPoller,
     runChecks: config.runChecks,
     executionMode: config.executionMode,
+    acceptedDefaults: config.acceptedDefaults,
     ports: {
       api: config.apiPort,
       web: config.webPort,
@@ -82,7 +83,7 @@ function commandAvailable(command, args = ['--version']) {
 }
 
 function collectToolingReport(platform) {
-  return {
+  const report = {
     platform,
     node: commandAvailable('node'),
     pnpm: commandAvailable('pnpm'),
@@ -90,12 +91,31 @@ function collectToolingReport(platform) {
     docker: commandAvailable('docker'),
     systemctl: platform === 'linux' ? commandAvailable('systemctl') : false
   };
+
+  const missing = [];
+  if (!report.node) missing.push('node');
+  if (!report.pnpm && !report.corepack) missing.push('pnpm or corepack');
+  if (!report.docker) missing.push('docker');
+
+  report.missing = missing;
+  report.hints = {
+    node: 'Install Node.js 22+ and ensure `node` is on PATH.',
+    'pnpm or corepack': 'Install pnpm or run `corepack enable pnpm`.',
+    docker: 'Install Docker Desktop or another Docker engine before starting compose services.',
+    systemctl: 'Use a Linux host with systemd for automatic startup, or fall back to manual startup guidance.'
+  };
+
+  return report;
 }
 
 function printToolingReport(report) {
   console.log('[sofia] tooling report:');
   for (const [key, value] of Object.entries(report)) {
+    if (key === 'missing' || key === 'hints') continue;
     console.log(`  - ${key}: ${value}`);
+  }
+  if (report.missing?.length) {
+    console.log(`[sofia] missing tooling detected: ${report.missing.join(', ')}`);
   }
 }
 
@@ -259,7 +279,8 @@ function printAutostartGuide(platform) {
 
 async function collectConfig() {
   const args = parseArgs(process.argv);
-  const interactive = !args.has('--non-interactive');
+  const acceptedDefaults = toBool(args.get('--yes'), false);
+  const interactive = !args.has('--non-interactive') && !acceptedDefaults;
   const rl = interactive ? readline.createInterface({input, output}) : null;
   try {
     const mode = interactive
@@ -301,6 +322,7 @@ async function collectConfig() {
       enableWorkerLoop,
       enableApprovalPoller,
       runChecks,
+      acceptedDefaults,
       executionMode: args.get('--execution-mode') || 'scaffold',
       apiPort: args.get('--api-port') || '8080',
       webPort: args.get('--web-port') || '3000',
@@ -349,6 +371,7 @@ function printDryRunPlan(config) {
   console.log(`  - worker loop: ${config.enableWorkerLoop}`);
   console.log(`  - approval poller: ${config.enableApprovalPoller}`);
   console.log(`  - run checks: ${config.runChecks}`);
+  console.log(`  - accepted defaults: ${config.acceptedDefaults}`);
   console.log(`  - api/web/admin ports: ${config.apiPort}/${config.webPort}/${config.adminPort}`);
   console.log('[sofia] planned steps:');
   for (const [index, step] of steps.entries()) {
@@ -368,7 +391,8 @@ async function main() {
     const report = buildSetupReport(config, toolingReport, {
       status: 'dry-run',
       reportPath: normalizeReportPath(),
-      plannedSteps: plannedSteps(config)
+      plannedSteps: plannedSteps(config),
+      actionableHints: toolingReport.missing?.map((name) => toolingReport.hints[name]).filter(Boolean) || []
     });
     await writeSetupReport(report);
     printDryRunPlan(config);
@@ -438,6 +462,7 @@ async function main() {
     status: 'applied',
     reportPath: normalizeReportPath(),
     completedSteps: completedSteps(config),
+    actionableHints: toolingReport.missing?.map((name) => toolingReport.hints[name]).filter(Boolean) || [],
     autostart: autostartResult
   });
   await writeSetupReport(report);
