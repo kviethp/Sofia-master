@@ -14,6 +14,17 @@ This slice adds a lightweight operational surface for the future dashboard and h
   - task counts by status
   - run counts by status
   - pending approval count
+  - active memory timeline summary when a task-scoped timeline artifact exists
+
+## Memory timeline summary
+
+The runtime status surface may now include:
+- active task id
+- active task title
+- timeline artifact path
+- compact summary bullets extracted from `timeline.md`
+
+This gives operators a low-friction continuity view before a richer explainability panel exists.
 
 ## Validation
 
