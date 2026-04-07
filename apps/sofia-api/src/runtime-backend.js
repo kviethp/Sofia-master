@@ -64,6 +64,56 @@ import {getRuntimePaths} from './paths.js';
 
 const runtimeStartedAt = Date.now();
 
+async function readRuntimeMemoryIndex(runtimePaths) {
+  try {
+    const raw = await fs.readFile(path.join(runtimePaths.stateDir, 'memory', 'index.json'), 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return {version: 1, activeTaskId: '', tasks: []};
+  }
+}
+
+async function summarizeActiveMemoryTimeline(runtimePaths) {
+  const index = await readRuntimeMemoryIndex(runtimePaths);
+  const activeTaskId = index?.activeTaskId ? String(index.activeTaskId) : '';
+  const entry = Array.isArray(index?.tasks) ? index.tasks.find((item) => String(item.taskId) === activeTaskId) : null;
+  if (!activeTaskId || !entry?.timelinePath) {
+    return {
+      activeTaskId: activeTaskId || null,
+      available: false,
+      timelinePath: entry?.timelinePath || null,
+      summary: null
+    };
+  }
+
+  try {
+    const timeline = await fs.readFile(entry.timelinePath, 'utf8');
+    const summary = String(timeline || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('- '))
+      .slice(0, 7);
+
+    return {
+      activeTaskId,
+      title: entry.title || null,
+      available: true,
+      timelinePath: entry.timelinePath,
+      summary,
+      updatedAt: entry.updatedAt || null
+    };
+  } catch {
+    return {
+      activeTaskId,
+      title: entry.title || null,
+      available: false,
+      timelinePath: entry.timelinePath,
+      summary: null,
+      updatedAt: entry.updatedAt || null
+    };
+  }
+}
+
 function getRuntimePolicySnapshot() {
   return {
     denyProviders: getDeniedProviders(),
@@ -720,9 +770,10 @@ export async function getRuntimeStatus() {
   const queue = await createRedisQueue();
   try {
     await ensureSchema(store);
-    const [summary, queueStats] = await Promise.all([
+    const [summary, queueStats, activeMemoryTimeline] = await Promise.all([
       summarizeRuntimeInPostgres(store),
-      getQueueStats(queue)
+      getQueueStats(queue),
+      summarizeActiveMemoryTimeline(runtimePaths)
     ]);
 
     return {
@@ -735,6 +786,9 @@ export async function getRuntimeStatus() {
         skillRegistryStatus: skills?.status || null,
         requiredSkillIds: skills?.requiredSkillIds || [],
         skillCount: skills?.skillCount ?? 0
+      },
+      memory: {
+        activeTimeline: activeMemoryTimeline
       },
       queue: queueStats,
       tasksByStatus: summary.tasksByStatus,
