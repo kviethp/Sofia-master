@@ -1,4 +1,4 @@
-# Sofia Runtime Hook Interface (v6)
+# Sofia Runtime Hook Interface (v7)
 
 ## Goal
 
@@ -20,6 +20,8 @@ Inputs:
 
 Action:
 - run `./tools/sofia-memory-cycle`
+- refresh task-scoped resume artifacts
+- refresh the compact memory timeline artifact
 
 ### 2. `after_resume`
 Called when a new request/session needs compact context restoration.
@@ -29,6 +31,7 @@ Inputs:
 
 Action:
 - render resume block from task-scoped memory
+- refresh task timeline for operator-visible continuity
 
 ### 3. `after_milestone`
 Called after important decisions, branch changes, or plan updates.
@@ -39,6 +42,7 @@ Inputs:
 
 Action:
 - refresh compacted working memory
+- update the task timeline with the latest objective / blocker / next action / artifact
 
 ---
 
@@ -75,8 +79,25 @@ Action:
 
 ---
 
+## Timeline artifact
+
+Each active task may emit a compact `timeline.md` artifact alongside working memory and the resume block.
+
+Suggested contents:
+- current objective
+- rolling summary
+- last decision
+- active blocker
+- next safe action
+- latest milestone
+- latest artifact reference
+
+This gives operators a fast, low-token continuity surface even before richer explainability UI exists.
+
+---
+
 ## Integration note
 
 This hook interface is intentionally narrow:
 - runtime owns orchestration triggers
-- memory layer owns storage, compaction merge, validation, and resume rendering
+- memory layer owns storage, compaction merge, validation, resume rendering, and lightweight timeline generation

@@ -29,6 +29,10 @@ function taskResumeBlockPath(runtime, taskId) {
   return path.join(taskMemoryDir(runtime, taskId), 'resume-block.md');
 }
 
+function taskTimelinePath(runtime, taskId) {
+  return path.join(taskMemoryDir(runtime, taskId), 'timeline.md');
+}
+
 function memoryIndexPath(runtime) {
   return path.join(memoryRoot(runtime), 'index.json');
 }
@@ -81,6 +85,32 @@ function ensureRecentTurns() {
   };
 }
 
+function renderTimeline(state) {
+  const latestMilestone = Array.isArray(state.milestones) && state.milestones.length > 0
+    ? state.milestones[state.milestones.length - 1]
+    : null;
+  const latestArtifact = [
+    latestMilestone?.artifactUri || '',
+    ...(state.fileTaskReferences || [])
+  ].find(Boolean) || '(none)';
+  const lastDecision = state.decisions?.length ? state.decisions[state.decisions.length - 1] : '(none)';
+  const activeBlocker = state.unresolvedGoals?.[0] || state.openLoops?.[0] || state.criticalContext?.[0] || '(none)';
+  const nextSafeAction = state.nextSteps?.[0] || '(none)';
+
+  return [
+    '# Sofia Memory Timeline',
+    '',
+    `- Current objective: ${state.goal || state.currentTask || '(unset)'}`,
+    `- Rolling summary: ${state.rollingSummary || '(none)'}`,
+    `- Last decision: ${lastDecision}`,
+    `- Active blocker: ${activeBlocker}`,
+    `- Next safe action: ${nextSafeAction}`,
+    `- Latest milestone: ${latestMilestone?.milestone || latestMilestone?.hook || '(none)'}`,
+    `- Latest artifact: ${latestArtifact}`,
+    ''
+  ].join('\n');
+}
+
 function renderResumeBlock(state, recentTurns) {
   const bullets = (items) => items?.length ? items.map((item) => `- ${item}`).join('\n') : '- (none)';
   const recent = recentTurns?.turns?.length
@@ -92,6 +122,9 @@ function renderResumeBlock(state, recentTurns) {
 
   return [
     '# Sofia Resume Block',
+    '',
+    '## Active Timeline',
+    renderTimeline(state),
     '',
     '## Active Task State',
     `- Current task: ${state.currentTask || '(unset)'}`,
@@ -130,7 +163,8 @@ async function updateIndex(runtime, task, taskId) {
     status: task?.status || 'active',
     workingMemoryPath: taskStatePath(runtime, taskId),
     recentTurnsPath: taskRecentTurnsPath(runtime, taskId),
-    resumeBlockPath: taskResumeBlockPath(runtime, taskId)
+    resumeBlockPath: taskResumeBlockPath(runtime, taskId),
+    timelinePath: taskTimelinePath(runtime, taskId)
   };
   if (existing) {
     Object.assign(existing, nextEntry);
@@ -157,6 +191,7 @@ async function persistTaskContext(runtime, task, taskId, state, recentTurns) {
   await writeJson(taskRecentTurnsPath(runtime, taskId), recentTurns);
   await ensureDir(taskMemoryDir(runtime, taskId));
   await fs.writeFile(taskResumeBlockPath(runtime, taskId), renderResumeBlock(state, recentTurns), 'utf8');
+  await fs.writeFile(taskTimelinePath(runtime, taskId), renderTimeline(state), 'utf8');
   await updateIndex(runtime, task, taskId);
 }
 
@@ -170,7 +205,6 @@ function pushMilestone(state, milestone) {
   state.milestones.push({timestamp: nowIso(), ...milestone});
   state.milestones = state.milestones.slice(-30);
 }
-
 
 function shortText(value, max = 320) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
