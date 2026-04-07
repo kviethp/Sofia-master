@@ -44,7 +44,7 @@ import {
   probeRedis
 } from './redis-queue.js';
 import {runTaskWithOpenClaw} from './run-executor.js';
-import {afterMilestoneHook, afterResumeHook, beforeCompactionHook, safeMemoryHook} from './memory-hooks.js';
+import {afterMilestoneHook, afterResumeHook, beforeCompactionHook, captureTaskInteractionHook, safeMemoryHook} from './memory-hooks.js';
 import {sendTelegramMessage, validateOpenClawConfig, getDefaultTelegramTarget} from '../../../packages/openclaw-adapter/src/index.js';
 import {resolveCompiledSkillRegistry} from '../../../packages/skill-compiler/src/index.js';
 import {applyProjectTemplate, listProjectTemplates as listBuiltinProjectTemplates} from './project-templates.js';
@@ -608,6 +608,13 @@ export async function createTask(input = {}) {
       task: created,
       reason: 'task_created',
       sourceText: [resolvedInput.title, resolvedInput.description, resolvedInput.note].filter(Boolean).join(' | ')
+    });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: created,
+      role: 'user',
+      reason: 'task_created_input',
+      text: [resolvedInput.title, resolvedInput.description, resolvedInput.note].filter(Boolean).join(' | ')
     });
     return created;
   } finally {
@@ -1310,6 +1317,13 @@ export async function startTask(taskId) {
       reason: 'task_started',
       sourceText: [queued.task.title, queued.task.currentPhase, queued.task.workflowTemplate].filter(Boolean).join(' | ')
     });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: queued.task,
+      role: 'assistant',
+      reason: 'task_started_runtime',
+      text: ['Task started', queued.task.title, queued.task.currentPhase, queued.task.workflowTemplate].filter(Boolean).join(' | ')
+    });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {
       const processed = await processTaskInlineUntilSettled(store, taskId);
@@ -1364,6 +1378,13 @@ export async function approveTask(taskId, input = {}) {
       task: approved.task,
       reason: 'approval_resumed',
       sourceText: [input.note, input.decisionBy, approved.approval?.phaseName].filter(Boolean).join(' | ')
+    });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: approved.task,
+      role: 'user',
+      reason: 'approval_accepted_input',
+      text: ['Approval accepted', input.note, input.decisionBy, approved.approval?.phaseName].filter(Boolean).join(' | ')
     });
 
     const target = getTelegramApprovalTarget(getRuntimePaths());
@@ -1429,6 +1450,13 @@ export async function rejectTask(taskId, input = {}) {
       detail: `Approval rejected for task ${rejected.task?.title || taskId}.`,
       sourceText: [input.note, input.decisionBy].filter(Boolean).join(' | ')
     });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: rejected.task,
+      role: 'user',
+      reason: 'approval_rejected_input',
+      text: ['Approval rejected', input.note, input.decisionBy].filter(Boolean).join(' | ')
+    });
     const approvals = await listTaskApprovals(store, taskId);
     const runs = await listTaskRuns(store, taskId);
     return {
@@ -1464,6 +1492,13 @@ export async function replayDeadLetterRun(runId, input = {}) {
       task: replayed.task,
       reason: 'dead_letter_replayed',
       sourceText: [input.note, input.reason].filter(Boolean).join(' | ')
+    });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: replayed.task,
+      role: 'assistant',
+      reason: 'dead_letter_replayed_runtime',
+      text: ['Dead-letter replay queued', input.note, input.reason].filter(Boolean).join(' | ')
     });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {

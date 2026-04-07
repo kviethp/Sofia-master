@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import {afterMilestoneHook, afterResumeHook, beforeCompactionHook} from '../src/memory-hooks.js';
+import {afterMilestoneHook, afterResumeHook, beforeCompactionHook, captureTaskInteractionHook} from '../src/memory-hooks.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -73,6 +73,14 @@ async function main() {
     sourceText: 'Resume the active validation workflow'
   });
 
+  await captureTaskInteractionHook({
+    runtime,
+    task,
+    role: 'user',
+    reason: 'validation_user_input',
+    text: 'Please continue the validation workflow and preserve recent context.'
+  });
+
   await beforeCompactionHook({
     runtime,
     task,
@@ -111,6 +119,10 @@ async function main() {
   assert(index.tasks[0].timelinePath === timelinePath, 'memory index missing timeline path');
 
   const activeTimeline = await summarizeActiveMemoryTimeline(stateDir);
+  const recentTurnsRaw = await fs.readFile(path.join(taskDir, 'recent-turns.json'), 'utf8');
+  const recentTurns = JSON.parse(recentTurnsRaw);
+  assert(Array.isArray(recentTurns.turns) && recentTurns.turns.some((turn) => turn.role === 'user' && String(turn.reason || '').includes('validation_user_input')), 'recent turns missing captured user interaction');
+
   assert(activeTimeline?.activeTaskId === task.id, 'runtime-style timeline summary task id mismatch');
   assert(activeTimeline?.timelinePath === timelinePath, 'runtime-style timeline summary path mismatch');
   assert(Array.isArray(activeTimeline?.summary) && activeTimeline.summary.some((line) => line.includes('Next safe action:')), 'runtime-style timeline summary missing next safe action bullet');
