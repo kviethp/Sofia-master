@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
+    "setup": "node scripts/setup.mjs",
     "skills:validate": "node scripts/skills-validate.mjs",
     "skills:compile": "node scripts/skills-compile.mjs",
     "agent-system:conformance": "node scripts/agent-system-conformance.mjs",
