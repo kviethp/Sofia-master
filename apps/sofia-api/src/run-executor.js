@@ -27,6 +27,8 @@ const OPENCLAW_AGENT_PROFILES = {
   }
 };
 
+const DEFAULT_RECENT_TURN_WINDOW = Number(process.env.SOFIA_RECENT_TURN_WINDOW || 8);
+
 const PHASE_ARTIFACTS = {
   planner: {
     kind: 'plan',
@@ -64,7 +66,7 @@ async function loadTaskMemoryContext(runtime, task) {
 
   try {
     const parsed = JSON.parse(await fs.readFile(recentTurnsPath, 'utf8'));
-    recentTurns = Array.isArray(parsed?.turns) ? parsed.turns.slice(-8) : [];
+    recentTurns = Array.isArray(parsed?.turns) ? parsed.turns.slice(-DEFAULT_RECENT_TURN_WINDOW) : [];
   } catch {}
 
   return {
@@ -73,7 +75,7 @@ async function loadTaskMemoryContext(runtime, task) {
   };
 }
 
-function formatRecentTurnsForPrompt(turns = []) {
+export function formatRecentTurnsForPrompt(turns = []) {
   if (!Array.isArray(turns) || turns.length === 0) {
     return '';
   }
@@ -89,14 +91,15 @@ function formatRecentTurnsForPrompt(turns = []) {
 }
 
 
-function createTaskPrompt(task, run, memoryContext = {}) {
+export function createTaskPrompt(task, run, memoryContext = {}) {
   const workerRole = run?.workerRole || 'builder';
   const phaseInstructions = {
     planner: 'Produce a short implementation plan and explicit constraints for the next worker.',
     builder: 'Produce a short execution summary focused on what would be built or changed.',
     verifier: 'Produce a short verification summary focused on checks, risks, and exit criteria.'
   };
-  const recentTurnsBlock = formatRecentTurnsForPrompt(memoryContext.recentTurns || []);
+  const normalizedRecentTurns = Array.isArray(memoryContext.recentTurns) ? memoryContext.recentTurns.slice(-DEFAULT_RECENT_TURN_WINDOW) : [];
+  const recentTurnsBlock = formatRecentTurnsForPrompt(normalizedRecentTurns);
   const lines = [
     'You are executing a Sofia Master control-plane probe for a queued task.',
     `Task title: ${task.title}`,
@@ -442,7 +445,7 @@ export async function runTaskWithOpenClaw({
     prompt,
     memoryContext: {
       hasResumeBlock: Boolean(memoryContext.resumeBlock),
-      recentTurnCount: Array.isArray(memoryContext.recentTurns) ? memoryContext.recentTurns.length : 0
+      recentTurnCount: Array.isArray(memoryContext.recentTurns) ? Math.min(memoryContext.recentTurns.length, DEFAULT_RECENT_TURN_WINDOW) : 0
     },
     stdout: result.stdout,
     stderr: result.stderr,
