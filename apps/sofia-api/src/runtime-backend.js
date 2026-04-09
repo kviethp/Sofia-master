@@ -44,7 +44,7 @@ import {
   probeRedis
 } from './redis-queue.js';
 import {runTaskWithOpenClaw} from './run-executor.js';
-import {afterMilestoneHook, afterResumeHook, beforeCompactionHook, safeMemoryHook} from './memory-hooks.js';
+import {afterMilestoneHook, afterResumeHook, beforeCompactionHook, captureTaskInteractionHook, safeMemoryHook} from './memory-hooks.js';
 import {sendTelegramMessage, validateOpenClawConfig, getDefaultTelegramTarget} from '../../../packages/openclaw-adapter/src/index.js';
 import {resolveCompiledSkillRegistry} from '../../../packages/skill-compiler/src/index.js';
 import {applyProjectTemplate, listProjectTemplates as listBuiltinProjectTemplates} from './project-templates.js';
@@ -112,6 +112,78 @@ async function summarizeActiveMemoryTimeline(runtimePaths) {
       updatedAt: entry.updatedAt || null
     };
   }
+
+function getRecentTurnWindow() {
+  return Math.max(1, Number(process.env.SOFIA_RECENT_TURN_WINDOW || 8));
+}
+
+async function summarizeActiveMemoryContinuity(runtimePaths) {
+  const index = await readRuntimeMemoryIndex(runtimePaths);
+  const activeTaskId = index?.activeTaskId ? String(index.activeTaskId) : '';
+  const entry = Array.isArray(index?.tasks) ? index.tasks.find((item) => String(item.taskId) === activeTaskId) : null;
+  const windowSize = getRecentTurnWindow();
+
+  if (!activeTaskId || !entry) {
+    return {
+      activeTaskId: activeTaskId || null,
+      available: false,
+      recentTurnWindow: windowSize,
+      recentTurnCountTotal: 0,
+      recentTurnCountWindow: 0,
+      hasResumeBlock: false,
+      hasTimeline: false,
+      paths: null
+    };
+  }
+
+  const paths = {
+    resumeBlockPath: entry.resumeBlockPath || null,
+    recentTurnsPath: entry.recentTurnsPath || null,
+    timelinePath: entry.timelinePath || null
+  };
+
+  let hasResumeBlock = false;
+  if (paths.resumeBlockPath) {
+    try {
+      await fs.access(paths.resumeBlockPath);
+      hasResumeBlock = true;
+    } catch {}
+  }
+
+  let hasTimeline = false;
+  if (paths.timelinePath) {
+    try {
+      await fs.access(paths.timelinePath);
+      hasTimeline = true;
+    } catch {}
+  }
+
+  let recentTurnCountTotal = 0;
+  let recentTurnCountWindow = 0;
+  if (paths.recentTurnsPath) {
+    try {
+      const raw = await fs.readFile(paths.recentTurnsPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const turns = Array.isArray(parsed?.turns) ? parsed.turns : [];
+      recentTurnCountTotal = turns.length;
+      recentTurnCountWindow = turns.slice(-windowSize).length;
+    } catch {}
+  }
+
+  return {
+    activeTaskId,
+    title: entry.title || null,
+    available: true,
+    recentTurnWindow: windowSize,
+    recentTurnCountTotal,
+    recentTurnCountWindow,
+    hasResumeBlock,
+    hasTimeline,
+    paths,
+    updatedAt: entry.updatedAt || null
+  };
+}
+
 }
 
 function getRuntimePolicySnapshot() {
@@ -609,6 +681,13 @@ export async function createTask(input = {}) {
       reason: 'task_created',
       sourceText: [resolvedInput.title, resolvedInput.description, resolvedInput.note].filter(Boolean).join(' | ')
     });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: created,
+      role: 'user',
+      reason: 'task_created_input',
+      text: [resolvedInput.title, resolvedInput.description, resolvedInput.note].filter(Boolean).join(' | ')
+    });
     return created;
   } finally {
     await closePostgresStore(store);
@@ -770,10 +849,11 @@ export async function getRuntimeStatus() {
   const queue = await createRedisQueue();
   try {
     await ensureSchema(store);
-    const [summary, queueStats, activeMemoryTimeline] = await Promise.all([
+    const [summary, queueStats, activeMemoryTimeline, activeMemoryContinuity] = await Promise.all([
       summarizeRuntimeInPostgres(store),
       getQueueStats(queue),
-      summarizeActiveMemoryTimeline(runtimePaths)
+      summarizeActiveMemoryTimeline(runtimePaths),
+      summarizeActiveMemoryContinuity(runtimePaths)
     ]);
 
     return {
@@ -788,7 +868,8 @@ export async function getRuntimeStatus() {
         skillCount: skills?.skillCount ?? 0
       },
       memory: {
-        activeTimeline: activeMemoryTimeline
+        activeTimeline: activeMemoryTimeline,
+        continuity: activeMemoryContinuity
       },
       queue: queueStats,
       tasksByStatus: summary.tasksByStatus,
@@ -1310,6 +1391,13 @@ export async function startTask(taskId) {
       reason: 'task_started',
       sourceText: [queued.task.title, queued.task.currentPhase, queued.task.workflowTemplate].filter(Boolean).join(' | ')
     });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: queued.task,
+      role: 'assistant',
+      reason: 'task_started_runtime',
+      text: ['Task started', queued.task.title, queued.task.currentPhase, queued.task.workflowTemplate].filter(Boolean).join(' | ')
+    });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {
       const processed = await processTaskInlineUntilSettled(store, taskId);
@@ -1364,6 +1452,13 @@ export async function approveTask(taskId, input = {}) {
       task: approved.task,
       reason: 'approval_resumed',
       sourceText: [input.note, input.decisionBy, approved.approval?.phaseName].filter(Boolean).join(' | ')
+    });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: approved.task,
+      role: 'user',
+      reason: 'approval_accepted_input',
+      text: ['Approval accepted', input.note, input.decisionBy, approved.approval?.phaseName].filter(Boolean).join(' | ')
     });
 
     const target = getTelegramApprovalTarget(getRuntimePaths());
@@ -1429,6 +1524,13 @@ export async function rejectTask(taskId, input = {}) {
       detail: `Approval rejected for task ${rejected.task?.title || taskId}.`,
       sourceText: [input.note, input.decisionBy].filter(Boolean).join(' | ')
     });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: rejected.task,
+      role: 'user',
+      reason: 'approval_rejected_input',
+      text: ['Approval rejected', input.note, input.decisionBy].filter(Boolean).join(' | ')
+    });
     const approvals = await listTaskApprovals(store, taskId);
     const runs = await listTaskRuns(store, taskId);
     return {
@@ -1464,6 +1566,13 @@ export async function replayDeadLetterRun(runId, input = {}) {
       task: replayed.task,
       reason: 'dead_letter_replayed',
       sourceText: [input.note, input.reason].filter(Boolean).join(' | ')
+    });
+    await safeMemoryHook(captureTaskInteractionHook, {
+      runtime: getRuntimePaths(),
+      task: replayed.task,
+      role: 'assistant',
+      reason: 'dead_letter_replayed_runtime',
+      text: ['Dead-letter replay queued', input.note, input.reason].filter(Boolean).join(' | ')
     });
 
     if ((process.env.SOFIA_WORKER_INLINE || 'true') === 'true') {

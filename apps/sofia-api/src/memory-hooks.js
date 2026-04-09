@@ -236,6 +236,25 @@ function buildMilestoneBrief({task, run, milestone, detail = '', artifactUri = '
   return detailText || `Milestone ${milestone} recorded for ${title}.`;
 }
 
+export async function captureTaskInteractionHook({runtime, task, role = 'user', text = '', reason = 'interaction', meta = {}}) {
+  const taskId = task?.id;
+  if (!taskId || !String(text || '').trim()) return {ok: false, skipped: true, reason: 'missing_task_or_text'};
+  const {state, recentTurns} = await loadTaskContext(runtime, task, taskId);
+  state.currentTask = task?.title || state.currentTask;
+  state.goal = state.goal || task?.title || '';
+  state.constraints = uniq([
+    ...(state.constraints || []),
+    task?.risk ? `Risk level: ${task.risk}` : '',
+    task?.workflowTemplate ? `Workflow: ${task.workflowTemplate}` : ''
+  ]);
+  if (!state.rollingSummary) {
+    state.rollingSummary = `Captured ${role} interaction via ${reason}.`;
+  }
+  appendRecentTurn(recentTurns, role, shortText(text, 280), {reason, ...meta});
+  await persistTaskContext(runtime, task, taskId, state, recentTurns);
+  return {ok: true, taskId, hook: 'capture_task_interaction', role, reason};
+}
+
 export async function afterResumeHook({runtime, task, reason = 'resume', sourceText = ''}) {
   const taskId = task?.id;
   if (!taskId) return {ok: false, skipped: true, reason: 'missing_task_id'};
