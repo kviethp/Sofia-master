@@ -49,6 +49,46 @@ async function summarizeActiveMemoryTimeline(stateDir) {
   };
 }
 
+async function summarizeActiveMemoryContinuity(stateDir, recentTurnWindow = 8) {
+  const index = await readRuntimeMemoryIndex(stateDir);
+  const activeTaskId = index?.activeTaskId ? String(index.activeTaskId) : '';
+  const entry = Array.isArray(index?.tasks) ? index.tasks.find((item) => String(item.taskId) === activeTaskId) : null;
+  if (!activeTaskId || !entry) {
+    return {
+      activeTaskId: activeTaskId || null,
+      available: false,
+      recentTurnWindow,
+      recentTurnCountTotal: 0,
+      recentTurnCountWindow: 0,
+      hasResumeBlock: false,
+      hasTimeline: false,
+      paths: null
+    };
+  }
+
+  const paths = {
+    resumeBlockPath: entry.resumeBlockPath || null,
+    recentTurnsPath: entry.recentTurnsPath || null,
+    timelinePath: entry.timelinePath || null
+  };
+  const recentTurnsRaw = await fs.readFile(paths.recentTurnsPath, 'utf8');
+  const recentTurns = JSON.parse(recentTurnsRaw);
+  const turns = Array.isArray(recentTurns.turns) ? recentTurns.turns : [];
+
+  return {
+    activeTaskId,
+    title: entry.title || null,
+    available: true,
+    recentTurnWindow,
+    recentTurnCountTotal: turns.length,
+    recentTurnCountWindow: turns.slice(-recentTurnWindow).length,
+    hasResumeBlock: true,
+    hasTimeline: true,
+    paths,
+    updatedAt: entry.updatedAt || null
+  };
+}
+
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sofia-memory-timeline-'));
   const stateDir = path.join(tempRoot, '.sofia', 'state');
@@ -119,6 +159,7 @@ async function main() {
   assert(index.tasks[0].timelinePath === timelinePath, 'memory index missing timeline path');
 
   const activeTimeline = await summarizeActiveMemoryTimeline(stateDir);
+  const continuity = await summarizeActiveMemoryContinuity(stateDir, 8);
   const recentTurnsRaw = await fs.readFile(path.join(taskDir, 'recent-turns.json'), 'utf8');
   const recentTurns = JSON.parse(recentTurnsRaw);
   assert(Array.isArray(recentTurns.turns) && recentTurns.turns.some((turn) => turn.role === 'user' && String(turn.reason || '').includes('validation_user_input')), 'recent turns missing captured user interaction');
@@ -126,13 +167,20 @@ async function main() {
   assert(activeTimeline?.activeTaskId === task.id, 'runtime-style timeline summary task id mismatch');
   assert(activeTimeline?.timelinePath === timelinePath, 'runtime-style timeline summary path mismatch');
   assert(Array.isArray(activeTimeline?.summary) && activeTimeline.summary.some((line) => line.includes('Next safe action:')), 'runtime-style timeline summary missing next safe action bullet');
+  assert(continuity?.available === true, 'continuity summary should be available');
+  assert(continuity?.recentTurnWindow === 8, 'continuity recent turn window mismatch');
+  assert(continuity?.recentTurnCountTotal >= 3, 'continuity recent turn count total mismatch');
+  assert(continuity?.recentTurnCountWindow >= 3, 'continuity recent turn count window mismatch');
+  assert(continuity?.hasResumeBlock === true, 'continuity should report resume block present');
+  assert(continuity?.hasTimeline === true, 'continuity should report timeline present');
 
   console.log('[sofia] memory timeline validation passed');
   console.log(JSON.stringify({
     timelinePath,
     resumePath,
     activeTaskId: activeTimeline.activeTaskId,
-    summary: activeTimeline.summary
+    summary: activeTimeline.summary,
+    continuity
   }, null, 2));
 }
 

@@ -180,7 +180,8 @@ const html = `<!doctype html>
         meta.textContent = [
           timeline.title || timeline.activeTaskId || 'Active task',
           timeline.timelinePath || '',
-          timeline.updatedAt ? ('updated ' + timeline.updatedAt) : ''
+          timeline.updatedAt ? ('updated ' + timeline.updatedAt) : '',
+          memory?.continuity?.available ? ('window ' + memory.continuity.recentTurnWindow + ', recent ' + memory.continuity.recentTurnCountTotal + ' (' + memory.continuity.recentTurnCountWindow + ' shown), resume ' + (memory.continuity.hasResumeBlock ? 'yes' : 'no')) : ''
         ].filter(Boolean).join(' · ');
 
         const items = Array.isArray(timeline.summary) ? timeline.summary : [];

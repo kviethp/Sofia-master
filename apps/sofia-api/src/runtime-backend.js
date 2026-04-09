@@ -112,6 +112,78 @@ async function summarizeActiveMemoryTimeline(runtimePaths) {
       updatedAt: entry.updatedAt || null
     };
   }
+
+function getRecentTurnWindow() {
+  return Math.max(1, Number(process.env.SOFIA_RECENT_TURN_WINDOW || 8));
+}
+
+async function summarizeActiveMemoryContinuity(runtimePaths) {
+  const index = await readRuntimeMemoryIndex(runtimePaths);
+  const activeTaskId = index?.activeTaskId ? String(index.activeTaskId) : '';
+  const entry = Array.isArray(index?.tasks) ? index.tasks.find((item) => String(item.taskId) === activeTaskId) : null;
+  const windowSize = getRecentTurnWindow();
+
+  if (!activeTaskId || !entry) {
+    return {
+      activeTaskId: activeTaskId || null,
+      available: false,
+      recentTurnWindow: windowSize,
+      recentTurnCountTotal: 0,
+      recentTurnCountWindow: 0,
+      hasResumeBlock: false,
+      hasTimeline: false,
+      paths: null
+    };
+  }
+
+  const paths = {
+    resumeBlockPath: entry.resumeBlockPath || null,
+    recentTurnsPath: entry.recentTurnsPath || null,
+    timelinePath: entry.timelinePath || null
+  };
+
+  let hasResumeBlock = false;
+  if (paths.resumeBlockPath) {
+    try {
+      await fs.access(paths.resumeBlockPath);
+      hasResumeBlock = true;
+    } catch {}
+  }
+
+  let hasTimeline = false;
+  if (paths.timelinePath) {
+    try {
+      await fs.access(paths.timelinePath);
+      hasTimeline = true;
+    } catch {}
+  }
+
+  let recentTurnCountTotal = 0;
+  let recentTurnCountWindow = 0;
+  if (paths.recentTurnsPath) {
+    try {
+      const raw = await fs.readFile(paths.recentTurnsPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const turns = Array.isArray(parsed?.turns) ? parsed.turns : [];
+      recentTurnCountTotal = turns.length;
+      recentTurnCountWindow = turns.slice(-windowSize).length;
+    } catch {}
+  }
+
+  return {
+    activeTaskId,
+    title: entry.title || null,
+    available: true,
+    recentTurnWindow: windowSize,
+    recentTurnCountTotal,
+    recentTurnCountWindow,
+    hasResumeBlock,
+    hasTimeline,
+    paths,
+    updatedAt: entry.updatedAt || null
+  };
+}
+
 }
 
 function getRuntimePolicySnapshot() {
@@ -777,10 +849,11 @@ export async function getRuntimeStatus() {
   const queue = await createRedisQueue();
   try {
     await ensureSchema(store);
-    const [summary, queueStats, activeMemoryTimeline] = await Promise.all([
+    const [summary, queueStats, activeMemoryTimeline, activeMemoryContinuity] = await Promise.all([
       summarizeRuntimeInPostgres(store),
       getQueueStats(queue),
-      summarizeActiveMemoryTimeline(runtimePaths)
+      summarizeActiveMemoryTimeline(runtimePaths),
+      summarizeActiveMemoryContinuity(runtimePaths)
     ]);
 
     return {
@@ -795,7 +868,8 @@ export async function getRuntimeStatus() {
         skillCount: skills?.skillCount ?? 0
       },
       memory: {
-        activeTimeline: activeMemoryTimeline
+        activeTimeline: activeMemoryTimeline,
+        continuity: activeMemoryContinuity
       },
       queue: queueStats,
       tasksByStatus: summary.tasksByStatus,
